@@ -1,0 +1,37 @@
+{
+  "name": "goodcopy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A simple Electron clipboard history manager.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "icon:mac": "node scripts/make-icon.js",
+    "pack:mac": "electron-builder --mac dir",
+    "dist:mac": "electron-builder --mac dmg",
+    "build:local": "npm run icon:mac && npm run pack:mac && codesign --force --deep --sign - dist/mac-arm64/GoodCopy.app"
+  },
+  "build": {
+    "appId": "local.goodcopy",
+    "productName": "GoodCopy",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "target": [
+        "dir"
+      ],
+      "identity": null
+    }
+  },
+  "devDependencies": {
+    "electron": "^42.3.2",
+    "electron-builder": "^26.8.1",
+    "png2icons": "^2.0.1"
+  }
+}

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GoodCopy</title>
+    <script>
+      const initialWindowSize = new URLSearchParams(location.search).get('windowSize') || 'medium';
+      document.documentElement.classList.add(`size-${initialWindowSize}`);
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <button class="icon-button" id="closeButton" type="button" title="关闭">←</button>
+        <input id="searchInput" class="search-input" type="search" placeholder="Type to filter entries..." />
+        <select id="typeFilter" class="type-filter" aria-label="类型过滤">
+          <option value="all">All Types</option>
+          <option value="text">Text</option>
+          <option value="image">Image</option>
+          <option value="tagged">Tagged</option>
+          <option value="untagged">Untagged</option>
+        </select>
+      </header>
+
+      <section class="content">
+        <aside class="entry-pane">
+          <div class="date-label">Today</div>
+          <ul id="entryList" class="entry-list"></ul>
+        </aside>
+
+        <section class="detail-pane">
+          <div class="preview-stage">
+            <textarea id="previewEditor" class="preview-editor" spellcheck="false" placeholder="复制文本或图片后会出现在这里"></textarea>
+            <div id="imagePreview" class="image-preview" hidden>
+              <img id="previewImage" alt="剪贴板图片预览" />
+            </div>
+          </div>
+
+          <div class="tool-row">
+            <button id="pinButton" class="tool-button pin-button" type="button">Pin</button>
+            <button id="oneLineButton" class="tool-button text-only-control" type="button">多行变为一行</button>
+            <div id="tagList" class="tag-list"></div>
+            <input id="tagInput" class="tag-input" type="text" placeholder="输入 tag 后回车" />
+          </div>
+        </section>
+      </section>
+
+      <footer class="footerbar">
+        <div class="brand-mark">▣</div>
+        <span>Clipboard History</span>
+        <div class="footer-actions">
+          <button id="pasteButton" class="footer-button strong" type="button">Paste</button>
+          <button id="copyButton" class="footer-button" type="button">Copy</button>
+          <button id="deleteButton" class="footer-button danger" type="button">Delete</button>
+          <button id="settingsButton" class="footer-button" type="button">设置</button>
+          <span class="shortcut">Ctrl P</span>
+        </div>
+      </footer>
+    </main>
+
+    <div id="settingsModal" class="modal-backdrop" hidden>
+      <section class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <header class="settings-header">
+          <h2 id="settingsTitle">设置</h2>
+          <button id="settingsCloseButton" class="icon-button" type="button" title="关闭">×</button>
+        </header>
+
+        <div class="settings-body">
+          <label class="settings-check">
+            <input id="removeBlankLinesToggle" type="checkbox" />
+            <span>去除空行</span>
+          </label>
+          <label class="settings-check">
+            <input id="trimLeadingSpacesToggle" type="checkbox" />
+            <span>去除前面空格</span>
+          </label>
+
+          <label class="settings-field">
+            <span>呼出快捷键</span>
+            <button id="shortcutRecordButton" class="shortcut-record" type="button">Ctrl P</button>
+          </label>
+
+          <label class="settings-field">
+            <span>窗口大小</span>
+            <select id="windowSizeSelect">
+              <option value="small">小</option>
+              <option value="medium">中</option>
+              <option value="large">大</option>
+            </select>
+          </label>
+        </div>
+
+        <footer class="settings-footer">
+          <button id="quitAppButton" class="footer-button danger" type="button">退出 GoodCopy</button>
+          <button id="settingsSaveButton" class="footer-button strong" type="button">保存设置</button>
+        </footer>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
