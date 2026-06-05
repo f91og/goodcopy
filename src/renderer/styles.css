@@ -362,7 +362,7 @@ textarea {
 
 .footerbar {
   display: grid;
-  grid-template-columns: 36px auto 1fr;
+  grid-template-columns: 36px minmax(160px, auto) 1fr;
   align-items: center;
   gap: 12px;
   padding: 8px 16px;
@@ -381,10 +381,23 @@ textarea {
   font-size: 17px;
 }
 
-.footerbar > span {
+.footer-meta {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.footer-meta > span:first-child {
   color: #686868;
   font-size: var(--footer-brand-size);
   font-weight: 650;
+}
+
+.storage-usage {
+  color: #777;
+  font-size: calc(var(--footer-brand-size) * 0.72);
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .footer-actions {
@@ -468,6 +481,12 @@ textarea {
   color: #111;
 }
 
+.settings-note {
+  margin-top: -6px;
+  color: #666;
+  font-size: 13px;
+}
+
 .shortcut-record {
   width: 180px;
   min-height: 34px;
@@ -484,6 +503,10 @@ textarea {
   border-color: #111;
   background: #111;
   color: #fff;
+}
+
+.danger-action {
+  color: #9f1c1c;
 }
 
 .settings-footer {

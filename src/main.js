@@ -1,9 +1,17 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, nativeImage, systemPreferences } = require('electron');
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
+const bindings = require('bindings');
+const macPermissions = process.platform === 'darwin' ? require('@nut-tree-fork/node-mac-permissions') : null;
+const libnut =
+  process.platform === 'darwin'
+    ? bindings({
+        bindings: 'libnut.node',
+        module_root: path.dirname(require.resolve('@nut-tree-fork/libnut-darwin/package.json'))
+      })
+    : null;
 
 let mainWindow;
 let entries = [];
@@ -12,8 +20,9 @@ let lastClipboardImageHash = '';
 let storePath = '';
 let settingsPath = '';
 let imageDir = '';
-let previousFrontmostAppId = '';
+let previousActiveWindow = null;
 let writeStoreTimer;
+let writeStoreWaiters = [];
 let isQuitting = false;
 
 const MAX_ENTRIES = 300;
@@ -139,8 +148,17 @@ async function writeStoreNow() {
 function writeStore() {
   clearTimeout(writeStoreTimer);
   return new Promise((resolve, reject) => {
+    writeStoreWaiters.push({ resolve, reject });
     writeStoreTimer = setTimeout(() => {
-      writeStoreNow().then(resolve, reject);
+      const waiters = writeStoreWaiters;
+      writeStoreWaiters = [];
+      writeStoreNow()
+        .then(() => {
+          for (const waiter of waiters) waiter.resolve();
+        })
+        .catch((error) => {
+          for (const waiter of waiters) waiter.reject(error);
+        });
     }, 180);
   });
 }
@@ -148,8 +166,47 @@ function writeStore() {
 async function flushStore() {
   clearTimeout(writeStoreTimer);
   if (storePath) {
-    await writeStoreNow();
+    try {
+      await writeStoreNow();
+      for (const waiter of writeStoreWaiters) waiter.resolve();
+    } catch (error) {
+      for (const waiter of writeStoreWaiters) waiter.reject(error);
+      throw error;
+    } finally {
+      writeStoreWaiters = [];
+    }
   }
+}
+
+async function fileSize(filePath) {
+  try {
+    const stats = await fs.stat(filePath);
+    return stats.size;
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error('Failed to read storage file size:', error);
+    }
+    return 0;
+  }
+}
+
+async function getStorageUsage() {
+  let bytes = await fileSize(storePath);
+  const imagePaths = new Set(
+    entries
+      .filter((entry) => entry.contentType === 'Image' && entry.imagePath)
+      .map((entry) => entry.imagePath)
+  );
+
+  for (const entryImagePath of imagePaths) {
+    bytes += await fileSize(entryImagePath);
+  }
+
+  return {
+    bytes,
+    entries: entries.length,
+    images: imagePaths.size
+  };
 }
 
 function trimEntries() {
@@ -267,25 +324,14 @@ function createWindow() {
   });
 }
 
-function captureFrontmostAppId() {
-  return new Promise((resolve) => {
-    if (process.platform !== 'darwin') {
-      resolve('');
-      return;
-    }
-
-    execFile(
-      'osascript',
-      ['-e', 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true'],
-      (error, stdout) => {
-        if (error) {
-          resolve('');
-          return;
-        }
-        resolve(stdout.trim());
-      }
-    );
-  });
+async function captureActiveWindow() {
+  if (process.platform !== 'darwin') return null;
+  try {
+    return libnut.getActiveWindow();
+  } catch (error) {
+    console.error('Failed to capture active window:', error);
+    return null;
+  }
 }
 
 async function togglePanel() {
@@ -295,12 +341,14 @@ async function togglePanel() {
     return;
   }
 
+  const activeWindowPromise = captureActiveWindow();
+  previousActiveWindow = null;
   applyWindowSize();
   mainWindow.show();
   mainWindow.focus();
   mainWindow.webContents.send('panel-opened');
-  captureFrontmostAppId().then((appId) => {
-    previousFrontmostAppId = appId;
+  activeWindowPromise.then((activeWindow) => {
+    previousActiveWindow = activeWindow;
   });
 }
 
@@ -313,30 +361,45 @@ function registerShortcuts() {
   return registered;
 }
 
-function pasteWithAppleScript(targetAppId = '') {
+function delay(ms) {
   return new Promise((resolve) => {
-    if (process.platform !== 'darwin') {
-      resolve(false);
-      return;
-    }
-
-    const script = targetAppId
-      ? [
-          `tell application id "${targetAppId}" to activate`,
-          'delay 0.08',
-          'tell application "System Events" to keystroke "v" using command down'
-        ].join('\n')
-      : 'tell application "System Events" to keystroke "v" using command down';
-
-    execFile('osascript', ['-e', script], (error) => {
-      if (error) {
-        console.error('Automatic paste failed:', error);
-        resolve(false);
-        return;
-      }
-      resolve(true);
-    });
+    setTimeout(resolve, ms);
   });
+}
+
+async function pasteWithNativeKeyboard(targetWindow = null) {
+  if (process.platform !== 'darwin') {
+    return false;
+  }
+
+  let focused = false;
+  if (targetWindow) {
+    try {
+      libnut.focusWindow(targetWindow);
+      focused = true;
+    } catch (error) {
+      console.error('Failed to focus target window:', error);
+    }
+  }
+
+  await delay(focused ? 35 : 80);
+  libnut.keyToggle('v', 'down', ['cmd']);
+  libnut.keyToggle('v', 'up', ['cmd']);
+  return true;
+}
+
+function getAccessibilityStatus() {
+  if (process.platform !== 'darwin') {
+    return { trusted: true, status: 'authorized', electronTrusted: true };
+  }
+
+  const electronTrusted = systemPreferences.isTrustedAccessibilityClient(false);
+  const status = macPermissions.getAuthStatus('accessibility');
+  return {
+    trusted: electronTrusted || status === 'authorized',
+    status,
+    electronTrusted
+  };
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -360,16 +423,13 @@ if (!app.requestSingleInstanceLock()) {
     const hasImage = formats.some((format) => format.startsWith('image/'));
     const now = Date.now();
 
-    if (!hasImage) {
-      const currentText = normalizeText(clipboard.readText());
-      if (currentText && currentText !== lastClipboardText) {
-        lastClipboardText = currentText;
-        addClipboardText(currentText).catch((error) => console.error('Failed to capture clipboard:', error));
-      }
-      return;
+    const currentText = normalizeText(clipboard.readText());
+    if (currentText && currentText !== lastClipboardText) {
+      lastClipboardText = currentText;
+      addClipboardText(currentText).catch((error) => console.error('Failed to capture clipboard:', error));
     }
 
-    if (now - lastImageClipboardCheck < IMAGE_CLIPBOARD_POLL_MS) {
+    if (!hasImage || now - lastImageClipboardCheck < IMAGE_CLIPBOARD_POLL_MS) {
       return;
     }
     lastImageClipboardCheck = now;
@@ -381,7 +441,6 @@ if (!app.requestSingleInstanceLock()) {
         lastClipboardImageHash = imageHash;
         addClipboardImage(currentImage).catch((error) => console.error('Failed to capture clipboard image:', error));
       }
-      return;
     }
   }, CLIPBOARD_POLL_MS);
 
@@ -414,6 +473,17 @@ app.on('will-quit', () => {
 ipcMain.handle('entries:list', () => toRendererEntries());
 
 ipcMain.handle('settings:get', () => settings);
+
+ipcMain.handle('permissions:accessibility-status', () => {
+  return getAccessibilityStatus();
+});
+
+ipcMain.handle('permissions:request-accessibility', () => {
+  if (process.platform !== 'darwin') return getAccessibilityStatus();
+  systemPreferences.isTrustedAccessibilityClient(true);
+  macPermissions.askForAccessibilityAccess();
+  return getAccessibilityStatus();
+});
 
 ipcMain.handle('settings:update', async (_event, nextSettings) => {
   const previousSettings = { ...settings };
@@ -466,9 +536,55 @@ ipcMain.handle('entries:delete', async (_event, id) => {
   return toRendererEntries();
 });
 
-ipcMain.handle('entries:paste', async (_event, id) => {
+ipcMain.handle('entries:clear-untagged', async () => {
+  const removed = entries.filter((entry) => !Array.isArray(entry.tags) || entry.tags.length === 0);
+  if (!removed.length) {
+    return {
+      entries: toRendererEntries(),
+      removed: 0,
+      storage: await getStorageUsage()
+    };
+  }
+
+  entries = entries.filter((entry) => Array.isArray(entry.tags) && entry.tags.length > 0);
+  await writeStore();
+
+  for (const entry of removed) {
+    if (entry.contentType === 'Image' && entry.imagePath) {
+      fs.unlink(entry.imagePath).catch(() => {});
+    }
+  }
+
+  emitEntriesChanged();
+  return {
+    entries: toRendererEntries(),
+    removed: removed.length,
+    storage: await getStorageUsage()
+  };
+});
+
+ipcMain.handle('storage:usage', () => getStorageUsage());
+
+ipcMain.handle('entries:paste', async (_event, payload) => {
+  const id = typeof payload === 'object' ? payload.id : payload;
   const entry = entries.find((item) => item.id === id);
   if (!entry) return { ok: false, pasted: false };
+  let shouldEmitEntriesChanged = false;
+
+  if (typeof payload === 'object') {
+    entry.tags = Array.isArray(payload.tags) ? payload.tags : entry.tags;
+    entry.pinned = typeof payload.pinned === 'boolean' ? payload.pinned : Boolean(entry.pinned);
+    entry.updatedAt = nowIso();
+
+    if (entry.contentType === 'Text') {
+      const text = normalizeText(payload.text);
+      entry.text = text;
+      entry.title = titleFromText(text);
+    }
+
+    writeStore().catch((error) => console.error('Failed to persist pasted entry:', error));
+    shouldEmitEntriesChanged = true;
+  }
 
   if (entry.contentType === 'Image') {
     const image = nativeImage.createFromPath(entry.imagePath);
@@ -480,10 +596,13 @@ ipcMain.handle('entries:paste', async (_event, id) => {
     lastClipboardText = entry.text;
   }
   mainWindow?.hide();
+  if (shouldEmitEntriesChanged) {
+    setTimeout(emitEntriesChanged, 0);
+  }
 
   setTimeout(() => {
-    pasteWithAppleScript(previousFrontmostAppId).catch((error) => console.error('Paste failed:', error));
-  }, 160);
+    pasteWithNativeKeyboard(previousActiveWindow).catch((error) => console.error('Automatic paste failed:', error));
+  }, 30);
 
   return { ok: true, pasted: process.platform === 'darwin' };
 });

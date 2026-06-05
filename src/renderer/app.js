@@ -1,7 +1,6 @@
 const state = {
   entries: [],
   selectedId: null,
-  draftText: '',
   draftTags: [],
   settings: null
 };
@@ -22,6 +21,11 @@ const shortcutRecordButton = document.getElementById('shortcutRecordButton');
 const windowSizeSelect = document.getElementById('windowSizeSelect');
 const settingsModal = document.getElementById('settingsModal');
 const shortcutLabel = document.querySelector('.shortcut');
+const accessibilityButton = document.getElementById('accessibilityButton');
+const accessibilityStatus = document.getElementById('accessibilityStatus');
+const storageUsage = document.getElementById('storageUsage');
+const clearUntaggedButton = document.getElementById('clearUntaggedButton');
+const clearUntaggedStatus = document.getElementById('clearUntaggedStatus');
 
 function shortcutText(shortcut) {
   return shortcut
@@ -29,6 +33,31 @@ function shortcutText(shortcut) {
     .replace('Command', 'Cmd')
     .replace('Control', 'Ctrl')
     .replaceAll('+', ' ');
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = value;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  const precision = unitIndex === 0 || size >= 10 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function storageText(usage) {
+  return `存储 ${formatBytes(usage?.bytes)} · ${usage?.entries || 0} 条`;
+}
+
+async function refreshStorageUsage() {
+  const usage = await window.goodcopy.getStorageUsage();
+  storageUsage.textContent = storageText(usage);
+  return usage;
 }
 
 function readSettingsForm() {
@@ -57,6 +86,19 @@ async function saveSettings() {
   const updated = await window.goodcopy.updateSettings(readSettingsForm());
   applySettingsToForm(updated);
   return updated;
+}
+
+async function refreshAccessibilityStatus() {
+  const result = await window.goodcopy.getAccessibilityStatus();
+  const trusted = typeof result === 'boolean' ? result : Boolean(result?.trusted);
+  const status = typeof result === 'object' ? result.status : trusted ? 'authorized' : 'denied';
+  const electronStatus = result?.electronTrusted ? 'authorized' : 'denied';
+  accessibilityButton.textContent = trusted ? '已授权' : '打开系统设置';
+  accessibilityButton.classList.toggle('recording', trusted);
+  accessibilityStatus.textContent = trusted
+    ? `辅助功能权限已开启。系统：${electronStatus}，底层：${status || 'unknown'}。`
+    : `当前状态：系统 ${electronStatus}，底层 ${status || 'unknown'}。打开系统设置后请给 GoodCopy 开启权限。`;
+  return trusted;
 }
 
 function applyTextTransforms(text) {
@@ -152,16 +194,12 @@ function filteredEntries() {
   }));
 }
 
-function currentFilteredEntries() {
-  return filteredEntries();
-}
-
 function setDraftFromEntry(entry) {
   state.selectedId = entry?.id || null;
   const isImage = entry?.contentType === 'Image';
-  state.draftText = isImage ? '' : applyTextTransforms(entry?.text || '');
+  const draftText = isImage ? '' : applyTextTransforms(entry?.text || '');
   state.draftTags = Array.isArray(entry?.tags) ? [...entry.tags] : [];
-  previewEditor.value = state.draftText;
+  previewEditor.value = draftText;
   previewEditor.hidden = isImage;
   imagePreview.hidden = !isImage;
   previewImage.src = isImage && entry.imageUrl ? entry.imageUrl : '';
@@ -172,7 +210,7 @@ function setDraftFromEntry(entry) {
 }
 
 function selectEntryByOffset(offset) {
-  const entries = currentFilteredEntries();
+  const entries = filteredEntries();
   if (!entries.length) return;
 
   const currentIndex = entries.findIndex((entry) => entry.id === state.selectedId);
@@ -186,11 +224,29 @@ function selectEntryByOffset(offset) {
   document.querySelector(`[data-id="${state.selectedId}"]`)?.scrollIntoView({ block: 'nearest' });
 }
 
+function selectFirstEntry() {
+  const entries = filteredEntries();
+  setDraftFromEntry(entries[0] || null);
+  renderEntries();
+  entryList.scrollTop = 0;
+}
+
 async function pasteSelectedEntry() {
-  const entry = await saveCurrentEntry();
-  if (entry) {
-    await window.goodcopy.pasteEntry(entry.id);
+  const entry = selectedEntry();
+  if (!entry) return;
+
+  const isText = entry.contentType === 'Text';
+  const text = isText ? applyTextTransforms(previewEditor.value) : entry.text || '';
+  if (isText) {
+    previewEditor.value = text;
   }
+
+  await window.goodcopy.pasteEntry({
+    id: entry.id,
+    text,
+    tags: state.draftTags,
+    pinned: Boolean(entry.pinned)
+  });
 }
 
 function renderEntries() {
@@ -300,7 +356,6 @@ async function saveCurrentEntry() {
   });
   if (updated) {
     state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
-    state.draftText = updated.text;
     state.draftTags = Array.isArray(updated.tags) ? [...updated.tags] : [];
     renderEntries();
   }
@@ -323,6 +378,7 @@ function addTagFromInput() {
 async function loadEntries() {
   state.entries = await window.goodcopy.listEntries();
   renderEntries();
+  await refreshStorageUsage();
 }
 
 document.getElementById('closeButton').addEventListener('click', () => {
@@ -358,6 +414,7 @@ document.getElementById('settingsButton').addEventListener('click', () => {
     applySettingsToForm(state.settings);
   }
   settingsModal.hidden = false;
+  refreshAccessibilityStatus();
 });
 
 shortcutRecordButton.addEventListener('click', () => {
@@ -387,6 +444,33 @@ shortcutRecordButton.addEventListener('keydown', (event) => {
   shortcutRecordButton.dataset.shortcut = shortcut;
   shortcutRecordButton.textContent = shortcutText(shortcut);
   shortcutRecordButton.classList.remove('recording');
+});
+
+accessibilityButton.addEventListener('click', async () => {
+  const trusted = await refreshAccessibilityStatus();
+  if (trusted) return;
+
+  await window.goodcopy.requestAccessibility();
+  setTimeout(refreshAccessibilityStatus, 600);
+});
+
+clearUntaggedButton.addEventListener('click', async () => {
+  const confirmed = window.confirm('确认删除所有没有 tag 的历史记录？已打 tag 的记录会保留。');
+  if (!confirmed) return;
+
+  clearUntaggedButton.disabled = true;
+  clearUntaggedStatus.textContent = '正在清理...';
+
+  try {
+    const result = await window.goodcopy.clearUntaggedEntries();
+    state.entries = result.entries;
+    state.selectedId = null;
+    renderEntries();
+    storageUsage.textContent = storageText(result.storage);
+    clearUntaggedStatus.textContent = `已清除 ${result.removed} 条 untagged 历史记录。`;
+  } finally {
+    clearUntaggedButton.disabled = false;
+  }
 });
 
 document.getElementById('settingsCloseButton').addEventListener('click', () => {
@@ -423,7 +507,10 @@ document.getElementById('pasteButton').addEventListener('click', async () => {
 document.getElementById('copyButton').addEventListener('click', async () => {
   const entry = await saveCurrentEntry();
   if (entry) {
-    await window.goodcopy.copyEntry(entry.id);
+    const copied = await window.goodcopy.copyEntry(entry.id);
+    if (copied) {
+      window.goodcopy.hideWindow();
+    }
   }
 });
 
@@ -501,9 +588,11 @@ document.addEventListener('keydown', (event) => {
 window.goodcopy.onEntriesChanged((entries) => {
   state.entries = entries;
   renderEntries();
+  refreshStorageUsage();
 });
 
 window.goodcopy.onPanelOpened(() => {
+  selectFirstEntry();
   searchInput.focus();
   searchInput.select();
 });
@@ -511,7 +600,6 @@ window.goodcopy.onPanelOpened(() => {
 async function boot() {
   applySettingsToForm(await window.goodcopy.getSettings());
   await loadEntries();
-  await refreshAccessibilityNotice();
 }
 
 boot();

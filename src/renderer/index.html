@@ -49,7 +49,10 @@
 
       <footer class="footerbar">
         <div class="brand-mark">▣</div>
-        <span>Clipboard History</span>
+        <div class="footer-meta">
+          <span>Clipboard History</span>
+          <span id="storageUsage" class="storage-usage">--</span>
+        </div>
         <div class="footer-actions">
           <button id="pasteButton" class="footer-button strong" type="button">Paste</button>
           <button id="copyButton" class="footer-button" type="button">Copy</button>
@@ -90,6 +93,18 @@
               <option value="large">大</option>
             </select>
           </label>
+
+          <label class="settings-field">
+            <span>辅助功能权限</span>
+            <button id="accessibilityButton" class="shortcut-record" type="button">检查权限</button>
+          </label>
+          <div id="accessibilityStatus" class="settings-note">用于自动粘贴到当前应用。</div>
+
+          <label class="settings-field">
+            <span>清理历史</span>
+            <button id="clearUntaggedButton" class="shortcut-record danger-action" type="button">清除 Untagged</button>
+          </label>
+          <div id="clearUntaggedStatus" class="settings-note">只删除没有 tag 的历史记录，已打 tag 的记录会保留。</div>
         </div>
 
         <footer class="settings-footer">

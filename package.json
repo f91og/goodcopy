@@ -10,7 +10,7 @@
     "icon:mac": "node scripts/make-icon.js",
     "pack:mac": "electron-builder --mac dir",
     "dist:mac": "electron-builder --mac dmg",
-    "build:local": "npm run icon:mac && npm run pack:mac && codesign --force --deep --sign - dist/mac-arm64/GoodCopy.app"
+    "build:local": "npm run icon:mac && npm run pack:mac && node scripts/sign-local-mac.js"
   },
   "build": {
     "appId": "local.goodcopy",
@@ -33,5 +33,10 @@
     "electron": "^42.3.2",
     "electron-builder": "^26.8.1",
     "png2icons": "^2.0.1"
+  },
+  "dependencies": {
+    "@nut-tree-fork/libnut-darwin": "^2.7.5",
+    "@nut-tree-fork/node-mac-permissions": "^2.2.1",
+    "bindings": "^1.5.0"
   }
 }
