@@ -105,10 +105,11 @@ function applyTextTransforms(text) {
   let nextText = text;
 
   if (removeBlankLinesToggle.checked) {
-    nextText = nextText
-      .split('\n')
-      .filter((line) => line.trim().length > 0)
-      .join('\n');
+    const lines = nextText.split('\n');
+    while (lines.length && lines[0].trim().length === 0) {
+      lines.shift();
+    }
+    nextText = lines.join('\n');
   }
 
   if (trimLeadingSpacesToggle.checked) {
