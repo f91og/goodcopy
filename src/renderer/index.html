@@ -30,12 +30,25 @@
           <ul id="entryList" class="entry-list"></ul>
         </aside>
 
+        <div
+          id="paneResizeHandle"
+          class="pane-resize-handle"
+          role="separator"
+          aria-label="调整列表和预览区域宽度"
+          aria-orientation="vertical"
+          tabindex="0"
+        ></div>
+
         <section class="detail-pane">
           <div class="preview-stage">
             <textarea id="previewEditor" class="preview-editor" spellcheck="false" placeholder="复制文本或图片后会出现在这里"></textarea>
             <div id="imagePreview" class="image-preview" hidden>
               <img id="previewImage" alt="剪贴板图片预览" />
             </div>
+          </div>
+
+          <div class="note-row">
+            <input id="noteInput" class="note-input" type="text" placeholder="输入这条剪贴板的描述" />
           </div>
 
           <div class="tool-row">
@@ -73,12 +86,37 @@
         <div class="settings-body">
           <label class="settings-check">
             <input id="removeBlankLinesToggle" type="checkbox" />
-            <span>去除开头空行</span>
+            <span>去除所有空行</span>
           </label>
           <label class="settings-check">
             <input id="trimLeadingSpacesToggle" type="checkbox" />
-            <span>去除前面空格</span>
+            <span>去除首行前空格</span>
           </label>
+          <label class="settings-field">
+            <span>AI 提供商</span>
+            <select id="aiProviderSelect">
+              <option value="none">不使用 AI</option>
+              <option value="codex">Codex</option>
+              <option value="claude">Claude</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>AI 登录</span>
+            <button id="aiLoginButton" class="shortcut-record" type="button">检查状态</button>
+          </label>
+          <div id="aiStatus" class="settings-note">复用本机 CLI 登录，不会保存账号或 token。</div>
+          <label class="settings-instruction">
+            <span>复制内容自动处理</span>
+            <textarea
+              id="aiInstructionInput"
+              rows="3"
+              maxlength="1000"
+              placeholder="例如：如果复制的是 GitHub PR 链接，就在描述里加入这个 PR 的标题"
+              disabled
+            ></textarea>
+            <button id="aiTestButton" class="shortcut-record ai-test-button" type="button" disabled>测试 AI</button>
+          </label>
+          <div class="settings-note">AI 会读取新复制的文本，并按这条指令生成描述。</div>
 
           <label class="settings-field">
             <span>呼出快捷键</span>

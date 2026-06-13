@@ -2,6 +2,7 @@ const state = {
   entries: [],
   selectedId: null,
   draftTags: [],
+  draftNote: '',
   settings: null
 };
 
@@ -11,12 +12,20 @@ const typeFilter = document.getElementById('typeFilter');
 const previewEditor = document.getElementById('previewEditor');
 const imagePreview = document.getElementById('imagePreview');
 const previewImage = document.getElementById('previewImage');
+const contentPane = document.querySelector('.content');
+const paneResizeHandle = document.getElementById('paneResizeHandle');
 const detailPane = document.querySelector('.detail-pane');
 const tagList = document.getElementById('tagList');
 const tagInput = document.getElementById('tagInput');
+const noteInput = document.getElementById('noteInput');
 const pinButton = document.getElementById('pinButton');
 const removeBlankLinesToggle = document.getElementById('removeBlankLinesToggle');
 const trimLeadingSpacesToggle = document.getElementById('trimLeadingSpacesToggle');
+const aiProviderSelect = document.getElementById('aiProviderSelect');
+const aiLoginButton = document.getElementById('aiLoginButton');
+const aiStatus = document.getElementById('aiStatus');
+const aiInstructionInput = document.getElementById('aiInstructionInput');
+const aiTestButton = document.getElementById('aiTestButton');
 const shortcutRecordButton = document.getElementById('shortcutRecordButton');
 const windowSizeSelect = document.getElementById('windowSizeSelect');
 const settingsModal = document.getElementById('settingsModal');
@@ -26,6 +35,75 @@ const accessibilityStatus = document.getElementById('accessibilityStatus');
 const storageUsage = document.getElementById('storageUsage');
 const clearUntaggedButton = document.getElementById('clearUntaggedButton');
 const clearUntaggedStatus = document.getElementById('clearUntaggedStatus');
+let isTagInputComposing = false;
+const PANE_WIDTH_STORAGE_KEY = 'goodcopy.entryPaneWidth';
+const DEFAULT_ENTRY_PANE_RATIO = 0.38;
+const MIN_ENTRY_PANE_WIDTH = 220;
+const MIN_DETAIL_PANE_WIDTH = 320;
+
+function clampEntryPaneWidth(width) {
+  const availableWidth = contentPane.clientWidth - paneResizeHandle.offsetWidth;
+  const maximumWidth = Math.max(MIN_ENTRY_PANE_WIDTH, availableWidth - MIN_DETAIL_PANE_WIDTH);
+  return Math.min(Math.max(width, MIN_ENTRY_PANE_WIDTH), maximumWidth);
+}
+
+function setEntryPaneWidth(width, persist = false) {
+  const nextWidth = clampEntryPaneWidth(width);
+  contentPane.style.setProperty('--entry-pane-width', `${nextWidth}px`);
+  paneResizeHandle.setAttribute('aria-valuenow', String(Math.round(nextWidth)));
+  if (persist) {
+    localStorage.setItem(PANE_WIDTH_STORAGE_KEY, String(Math.round(nextWidth)));
+  }
+}
+
+function restoreEntryPaneWidth() {
+  const storedWidth = Number(localStorage.getItem(PANE_WIDTH_STORAGE_KEY));
+  const defaultWidth = contentPane.clientWidth * DEFAULT_ENTRY_PANE_RATIO;
+  setEntryPaneWidth(Number.isFinite(storedWidth) && storedWidth > 0 ? storedWidth : defaultWidth);
+}
+
+paneResizeHandle.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  paneResizeHandle.setPointerCapture(event.pointerId);
+  contentPane.classList.add('resizing');
+});
+
+paneResizeHandle.addEventListener('pointermove', (event) => {
+  if (!paneResizeHandle.hasPointerCapture(event.pointerId)) return;
+  const contentBounds = contentPane.getBoundingClientRect();
+  setEntryPaneWidth(event.clientX - contentBounds.left);
+});
+
+paneResizeHandle.addEventListener('pointerup', (event) => {
+  if (!paneResizeHandle.hasPointerCapture(event.pointerId)) return;
+  paneResizeHandle.releasePointerCapture(event.pointerId);
+  contentPane.classList.remove('resizing');
+  const entryPaneWidth = Number.parseFloat(getComputedStyle(contentPane).getPropertyValue('--entry-pane-width'));
+  setEntryPaneWidth(entryPaneWidth, true);
+});
+
+paneResizeHandle.addEventListener('pointercancel', () => {
+  contentPane.classList.remove('resizing');
+});
+
+paneResizeHandle.addEventListener('dblclick', () => {
+  localStorage.removeItem(PANE_WIDTH_STORAGE_KEY);
+  setEntryPaneWidth(contentPane.clientWidth * DEFAULT_ENTRY_PANE_RATIO);
+});
+
+paneResizeHandle.addEventListener('keydown', (event) => {
+  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+  event.preventDefault();
+  const currentWidth = paneResizeHandle.getBoundingClientRect().left - contentPane.getBoundingClientRect().left;
+  const direction = event.key === 'ArrowLeft' ? -1 : 1;
+  const step = event.shiftKey ? 40 : 10;
+  setEntryPaneWidth(currentWidth + direction * step, true);
+});
+
+window.addEventListener('resize', () => {
+  const currentWidth = paneResizeHandle.getBoundingClientRect().left - contentPane.getBoundingClientRect().left;
+  setEntryPaneWidth(currentWidth);
+});
 
 function shortcutText(shortcut) {
   return shortcut
@@ -64,6 +142,8 @@ function readSettingsForm() {
   return {
     removeBlankLines: removeBlankLinesToggle.checked,
     trimLeadingSpaces: trimLeadingSpacesToggle.checked,
+    aiProvider: aiProviderSelect.value,
+    aiInstruction: aiInstructionInput.value,
     shortcut: shortcutRecordButton.dataset.shortcut || 'Control+P',
     windowSize: windowSizeSelect.value
   };
@@ -73,6 +153,9 @@ function applySettingsToForm(settings) {
   state.settings = { ...settings };
   removeBlankLinesToggle.checked = Boolean(settings.removeBlankLines);
   trimLeadingSpacesToggle.checked = Boolean(settings.trimLeadingSpaces);
+  aiProviderSelect.value = settings.aiProvider || 'none';
+  aiInstructionInput.value = settings.aiInstruction || '';
+  aiInstructionInput.disabled = true;
   shortcutRecordButton.dataset.shortcut = settings.shortcut || 'Control+P';
   shortcutRecordButton.textContent = shortcutText(shortcutRecordButton.dataset.shortcut);
   shortcutRecordButton.classList.remove('recording');
@@ -101,25 +184,37 @@ async function refreshAccessibilityStatus() {
   return trusted;
 }
 
+async function refreshAiStatus() {
+  const provider = aiProviderSelect.value;
+  aiLoginButton.disabled = provider === 'none';
+  aiInstructionInput.disabled = true;
+  aiTestButton.disabled = true;
+  aiLoginButton.textContent = provider === 'none' ? '未启用' : '检查中...';
+  aiStatus.textContent = provider === 'none' ? '选择 Codex 或 Claude 后，可复用本机 CLI 登录。' : '正在检查登录状态...';
+
+  if (provider === 'none') return null;
+
+  const status = await window.goodcopy.getAiStatus(provider);
+  aiStatus.textContent = `${status.message}。GoodCopy 不保存账号或 token。`;
+  aiLoginButton.textContent = status.loggedIn ? '已登录 · 重新检查' : status.installed ? '打开终端登录' : '未安装';
+  aiLoginButton.disabled = !status.installed;
+  aiInstructionInput.disabled = !status.loggedIn;
+  aiTestButton.disabled = !status.loggedIn;
+  return status;
+}
+
 function applyTextTransforms(text) {
-  let nextText = text;
+  let lines = text.split('\n');
 
   if (removeBlankLinesToggle.checked) {
-    const lines = nextText.split('\n');
-    while (lines.length && lines[0].trim().length === 0) {
-      lines.shift();
-    }
-    nextText = lines.join('\n');
+    lines = lines.filter((line) => line.trim().length > 0);
   }
 
-  if (trimLeadingSpacesToggle.checked) {
-    nextText = nextText
-      .split('\n')
-      .map((line) => line.replace(/^\s+/, ''))
-      .join('\n');
+  if (trimLeadingSpacesToggle.checked && lines.length) {
+    lines[0] = lines[0].replace(/^[ \t]+/, '');
   }
 
-  return nextText;
+  return lines.join('\n');
 }
 
 function selectedEntry() {
@@ -182,7 +277,7 @@ function filteredEntries() {
 
   return sortedEntries(state.entries.filter((entry) => {
     const tags = Array.isArray(entry.tags) ? entry.tags : [];
-    const haystack = `${entry.title || ''} ${entry.text || ''} ${entry.contentType || ''} ${tags.join(' ')}`.toLowerCase();
+    const haystack = `${entry.title || ''} ${entry.note || ''} ${entry.text || ''} ${entry.contentType || ''} ${tags.join(' ')}`.toLowerCase();
     const matchesQuery = !query || haystack.includes(query);
     const matchesType =
       filter === 'all' ||
@@ -200,7 +295,10 @@ function setDraftFromEntry(entry) {
   const isImage = entry?.contentType === 'Image';
   const draftText = isImage ? '' : applyTextTransforms(entry?.text || '');
   state.draftTags = Array.isArray(entry?.tags) ? [...entry.tags] : [];
+  state.draftNote = entry?.note || '';
   previewEditor.value = draftText;
+  noteInput.value = state.draftNote;
+  noteInput.disabled = !entry;
   previewEditor.hidden = isImage;
   imagePreview.hidden = !isImage;
   previewImage.src = isImage && entry.imageUrl ? entry.imageUrl : '';
@@ -245,6 +343,7 @@ async function pasteSelectedEntry() {
   await window.goodcopy.pasteEntry({
     id: entry.id,
     text,
+    note: state.draftNote,
     tags: state.draftTags,
     pinned: Boolean(entry.pinned)
   });
@@ -291,6 +390,13 @@ function renderEntries() {
     title.className = 'entry-title';
     title.textContent = `${entry.pinned ? 'Pin · ' : ''}${entry.title}`;
     textWrap.append(title);
+
+    if (entry.note) {
+      const noteLine = document.createElement('div');
+      noteLine.className = 'entry-note';
+      noteLine.textContent = entry.note;
+      textWrap.append(noteLine);
+    }
 
     if (tags.length) {
       const tagLine = document.createElement('div');
@@ -352,12 +458,15 @@ async function saveCurrentEntry() {
   const updated = await window.goodcopy.updateEntry({
     id: entry.id,
     text: transformedText,
+    note: state.draftNote,
     tags: state.draftTags,
     pinned: Boolean(entry.pinned)
   });
   if (updated) {
     state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
     state.draftTags = Array.isArray(updated.tags) ? [...updated.tags] : [];
+    state.draftNote = updated.note || '';
+    noteInput.value = state.draftNote;
     renderEntries();
   }
   return updated;
@@ -399,6 +508,7 @@ pinButton.addEventListener('click', async () => {
   const updated = await window.goodcopy.updateEntry({
     id: entry.id,
     text: entry.contentType === 'Text' ? previewEditor.value : entry.text || '',
+    note: state.draftNote,
     tags: state.draftTags,
     pinned: !entry.pinned
   });
@@ -416,6 +526,44 @@ document.getElementById('settingsButton').addEventListener('click', () => {
   }
   settingsModal.hidden = false;
   refreshAccessibilityStatus();
+  refreshAiStatus();
+});
+
+aiProviderSelect.addEventListener('change', refreshAiStatus);
+
+aiLoginButton.addEventListener('click', async () => {
+  const status = await window.goodcopy.getAiStatus(aiProviderSelect.value);
+  if (status.loggedIn) {
+    await refreshAiStatus();
+    return;
+  }
+
+  const result = await window.goodcopy.loginAi(aiProviderSelect.value);
+  aiStatus.textContent = result.message;
+  if (result.ok) {
+    setTimeout(refreshAiStatus, 3000);
+  }
+});
+
+aiTestButton.addEventListener('click', async () => {
+  aiTestButton.disabled = true;
+  aiTestButton.textContent = '测试中...';
+  aiStatus.textContent = '正在调用 AI，请稍候...';
+
+  try {
+    const result = await window.goodcopy.testAi(aiProviderSelect.value);
+    if (result.ok) {
+      aiInstructionInput.value = result.response;
+      aiStatus.textContent = 'AI 测试成功。';
+    } else {
+      aiStatus.textContent = result.message;
+    }
+  } catch (error) {
+    aiStatus.textContent = error?.message || 'AI 测试失败';
+  } finally {
+    aiTestButton.textContent = '测试 AI';
+    aiTestButton.disabled = aiInstructionInput.disabled;
+  }
 });
 
 shortcutRecordButton.addEventListener('click', () => {
@@ -530,11 +678,34 @@ previewEditor.addEventListener('keydown', (event) => {
   }
 });
 
+tagInput.addEventListener('compositionstart', () => {
+  isTagInputComposing = true;
+});
+
+tagInput.addEventListener('compositionend', () => {
+  isTagInputComposing = false;
+});
+
 tagInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') {
+  if (event.key === 'Enter' && !event.isComposing && !isTagInputComposing && event.keyCode !== 229) {
     event.preventDefault();
     addTagFromInput();
   }
+});
+
+noteInput.addEventListener('input', () => {
+  state.draftNote = noteInput.value.trim();
+});
+
+noteInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.isComposing) {
+    event.preventDefault();
+    saveCurrentEntry();
+  }
+});
+
+noteInput.addEventListener('blur', () => {
+  saveCurrentEntry();
 });
 
 searchInput.addEventListener('input', renderEntries);
@@ -579,7 +750,8 @@ document.addEventListener('keydown', (event) => {
     !event.isComposing &&
     settingsModal.hidden &&
     document.activeElement !== previewEditor &&
-    document.activeElement !== tagInput
+    document.activeElement !== tagInput &&
+    document.activeElement !== noteInput
   ) {
     event.preventDefault();
     pasteSelectedEntry();
@@ -588,6 +760,11 @@ document.addEventListener('keydown', (event) => {
 
 window.goodcopy.onEntriesChanged((entries) => {
   state.entries = entries;
+  const entry = selectedEntry();
+  if (entry && document.activeElement !== noteInput && entry.note !== state.draftNote) {
+    state.draftNote = entry.note || '';
+    noteInput.value = state.draftNote;
+  }
   renderEntries();
   refreshStorageUsage();
 });
@@ -599,6 +776,7 @@ window.goodcopy.onPanelOpened(() => {
 });
 
 async function boot() {
+  restoreEntryPaneWidth();
   applySettingsToForm(await window.goodcopy.getSettings());
   await loadEntries();
 }

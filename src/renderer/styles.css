@@ -16,6 +16,15 @@
   --footer-button-size: 16px;
   --toolbar-padding-x: 20px;
   --pane-padding-top: 20px;
+  --settings-width: 420px;
+  --settings-font-size: 15px;
+  --settings-title-size: 20px;
+  --settings-padding-x: 18px;
+  --settings-body-padding-y: 16px;
+  --settings-gap: 12px;
+  --settings-row-height: 40px;
+  --settings-control-width: 180px;
+  --settings-control-height: 34px;
 }
 
 * {
@@ -41,22 +50,119 @@ body {
   --footer-button-size: 12px;
   --toolbar-padding-x: 14px;
   --pane-padding-top: 14px;
+  --settings-width: 360px;
+  --settings-font-size: 13px;
+  --settings-title-size: 17px;
+  --settings-padding-x: 14px;
+  --settings-body-padding-y: 10px;
+  --settings-gap: 7px;
+  --settings-row-height: 32px;
+  --settings-control-width: 150px;
+  --settings-control-height: 30px;
+}
+
+:root.size-medium {
+  --topbar-height: 62px;
+  --footer-height: 46px;
+  --search-size: 19px;
+  --type-size: 15px;
+  --entry-title-size: 16px;
+  --entry-min-height: 44px;
+  --entry-icon-size: 29px;
+  --preview-size: 14px;
+  --button-height: 30px;
+  --footer-brand-size: 13px;
+  --footer-button-size: 13px;
+  --toolbar-padding-x: 16px;
+  --pane-padding-top: 14px;
+  --settings-width: 420px;
+  --settings-font-size: 14px;
+  --settings-title-size: 18px;
+  --settings-padding-x: 16px;
+  --settings-body-padding-y: 12px;
+  --settings-gap: 8px;
+  --settings-row-height: 34px;
+  --settings-control-width: 170px;
+  --settings-control-height: 30px;
+}
+
+:root.size-medium .topbar {
+  padding-block: 8px;
+}
+
+:root.size-medium .entry-item {
+  gap: 10px;
+  margin-block: 1px;
+  padding: 6px 12px;
+}
+
+:root.size-medium .date-label {
+  padding-bottom: 8px;
+}
+
+:root.size-medium .note-row {
+  padding-top: 8px;
+}
+
+:root.size-medium .tool-row {
+  gap: 8px;
+  padding-block: 8px;
+}
+
+:root.size-medium .footerbar {
+  padding-block: 6px;
 }
 
 :root.size-large {
-  --topbar-height: 86px;
-  --footer-height: 60px;
-  --search-size: 28px;
-  --type-size: 21px;
-  --entry-title-size: 22px;
-  --entry-min-height: 64px;
-  --entry-icon-size: 40px;
-  --preview-size: 18px;
-  --button-height: 38px;
-  --footer-brand-size: 18px;
-  --footer-button-size: 18px;
-  --toolbar-padding-x: 24px;
-  --pane-padding-top: 24px;
+  --topbar-height: 62px;
+  --footer-height: 46px;
+  --search-size: 19px;
+  --type-size: 15px;
+  --entry-title-size: 15px;
+  --entry-min-height: 42px;
+  --entry-icon-size: 28px;
+  --preview-size: 14px;
+  --button-height: 30px;
+  --footer-brand-size: 13px;
+  --footer-button-size: 13px;
+  --toolbar-padding-x: 16px;
+  --pane-padding-top: 14px;
+  --settings-width: 440px;
+  --settings-font-size: 14px;
+  --settings-title-size: 18px;
+  --settings-padding-x: 16px;
+  --settings-body-padding-y: 12px;
+  --settings-gap: 8px;
+  --settings-row-height: 34px;
+  --settings-control-width: 170px;
+  --settings-control-height: 30px;
+}
+
+:root.size-large .topbar {
+  padding-block: 8px;
+}
+
+:root.size-large .entry-item {
+  gap: 10px;
+  margin-block: 1px;
+  padding: 6px 12px;
+}
+
+:root.size-large .date-label {
+  padding-bottom: 8px;
+}
+
+:root.size-large .note-row {
+  padding-top: 8px;
+}
+
+:root.size-large .tool-row {
+  gap: 8px;
+  padding-block: 8px;
+}
+
+:root.size-large .footerbar {
+  padding-block: 6px;
 }
 
 [hidden] {
@@ -94,8 +200,10 @@ textarea {
 .primary-button,
 .footer-button,
 .tag-input,
+.note-input,
 .settings-check input,
 .settings-field select,
+.settings-instruction textarea,
 .shortcut-record {
   -webkit-app-region: no-drag;
 }
@@ -142,16 +250,47 @@ textarea {
 }
 
 .content {
+  --entry-pane-width: 38%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 38% 62%;
+  grid-template-columns: minmax(240px, var(--entry-pane-width)) 8px minmax(320px, 1fr);
 }
 
 .entry-pane {
   min-width: 0;
   overflow: auto;
   padding: var(--pane-padding-top) 10px 14px;
-  border-right: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.pane-resize-handle {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+
+.pane-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: rgba(0, 0, 0, 0.12);
+  transform: translateX(-50%);
+  transition: width 120ms ease, background 120ms ease;
+}
+
+.pane-resize-handle:hover::after,
+.pane-resize-handle:focus-visible::after,
+.content.resizing .pane-resize-handle::after {
+  width: 3px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.content.resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .date-label {
@@ -233,11 +372,21 @@ textarea {
   font-size: calc(var(--entry-title-size) * 0.65);
 }
 
+.entry-note {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #4f4f4f;
+  font-size: calc(var(--entry-title-size) * 0.72);
+  font-weight: 560;
+}
+
 .detail-pane {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: 1fr auto auto;
 }
 
 .preview-stage {
@@ -283,6 +432,27 @@ textarea {
   gap: 10px;
   align-items: center;
   padding: 10px var(--toolbar-padding-x);
+}
+
+.note-row {
+  padding: 10px var(--toolbar-padding-x) 0;
+}
+
+.note-input {
+  width: 100%;
+  height: calc(var(--button-height) + 2px);
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 8px;
+  padding: 0 12px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.2);
+  color: #111;
+  font-size: var(--footer-button-size);
+}
+
+.note-input::placeholder {
+  color: #858585;
+  font-weight: 600;
 }
 
 .detail-pane.image-selected .text-only-control {
@@ -358,6 +528,13 @@ textarea {
   padding: 0 10px;
   outline: none;
   background: rgba(255, 255, 255, 0.22);
+  color: #111;
+  font-size: var(--footer-button-size);
+}
+
+.tag-input::placeholder {
+  color: #858585;
+  font-weight: 600;
 }
 
 .footerbar {
@@ -427,11 +604,14 @@ textarea {
 }
 
 .settings-modal {
-  width: min(420px, 100%);
+  width: min(var(--settings-width), 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
   border-radius: 10px;
   border: 1px solid rgba(0, 0, 0, 0.16);
   background: rgba(238, 238, 236, 0.96);
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.22);
+  font-size: var(--settings-font-size);
 }
 
 .settings-header {
@@ -439,19 +619,19 @@ textarea {
   grid-template-columns: 1fr 34px;
   align-items: center;
   gap: 12px;
-  padding: 16px 18px 10px;
+  padding: var(--settings-body-padding-y) var(--settings-padding-x) 10px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .settings-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--settings-title-size);
 }
 
 .settings-body {
   display: grid;
-  gap: 12px;
-  padding: 16px 18px;
+  gap: var(--settings-gap);
+  padding: var(--settings-body-padding-y) var(--settings-padding-x);
 }
 
 .settings-check,
@@ -460,9 +640,39 @@ textarea {
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 18px;
-  min-height: 40px;
+  min-height: var(--settings-row-height);
   color: #202020;
   font-weight: 650;
+}
+
+.settings-instruction {
+  display: grid;
+  gap: 8px;
+  color: #202020;
+  font-weight: 650;
+}
+
+.settings-instruction textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, 0.28);
+  color: #111;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.settings-instruction textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ai-test-button {
+  justify-self: end;
 }
 
 .settings-check input {
@@ -472,8 +682,8 @@ textarea {
 }
 
 .settings-field select {
-  width: 180px;
-  height: 34px;
+  width: var(--settings-control-width);
+  height: var(--settings-control-height);
   border: 1px solid rgba(0, 0, 0, 0.18);
   border-radius: 8px;
   padding: 0 10px;
@@ -484,12 +694,12 @@ textarea {
 .settings-note {
   margin-top: -6px;
   color: #666;
-  font-size: 13px;
+  font-size: 0.82em;
 }
 
 .shortcut-record {
-  width: 180px;
-  min-height: 34px;
+  width: var(--settings-control-width);
+  min-height: var(--settings-control-height);
   border: 1px solid rgba(0, 0, 0, 0.18);
   border-radius: 8px;
   padding: 0 10px;
@@ -513,7 +723,7 @@ textarea {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 18px 16px;
+  padding: 0 var(--settings-padding-x) var(--settings-body-padding-y);
 }
 
 .empty-state {
@@ -528,6 +738,6 @@ textarea {
   }
 
   .content {
-    grid-template-columns: 42% 58%;
+    grid-template-columns: minmax(220px, var(--entry-pane-width)) 8px minmax(280px, 1fr);
   }
 }
