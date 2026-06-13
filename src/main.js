@@ -35,6 +35,7 @@ let lastImageClipboardCheck = 0;
 const DEFAULT_SETTINGS = {
   removeBlankLines: false,
   trimLeadingSpaces: false,
+  fetchGithubPullRequestTitles: false,
   aiProvider: 'none',
   aiInstruction: '',
   shortcut: 'Control+P',
@@ -121,6 +122,23 @@ function githubPullRequestUrls(text) {
   return [...new Set(matches.map((value) => value.match(/^https?:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/i)?.[0]).filter(Boolean))];
 }
 
+function exactGithubPullRequestUrl(text) {
+  const value = String(text || '').trim();
+  if (!/^https?:\/\/github\.com\//i.test(value)) return '';
+
+  try {
+    const url = new URL(value);
+    if (url.hostname.toLowerCase() !== 'github.com' || url.username || url.password || url.port) return '';
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    if (segments.length < 4 || segments[2].toLowerCase() !== 'pull' || !/^\d+$/.test(segments[3])) return '';
+
+    return `https://github.com/${segments[0]}/${segments[1]}/pull/${segments[3]}`;
+  } catch {
+    return '';
+  }
+}
+
 async function findExecutable(command) {
   for (const candidate of aiExecutableCandidates(command)) {
     try {
@@ -131,6 +149,73 @@ async function findExecutable(command) {
 
   const result = await runCommand('/bin/zsh', ['-lic', `command -v ${command}`], { timeout: 5000 });
   return result.ok && result.stdout ? result.stdout.split('\n').at(-1).trim() : '';
+}
+
+async function getGithubStatus() {
+  const executable = await findExecutable('gh');
+  if (!executable) {
+    return { installed: false, loggedIn: false, message: '未找到 GitHub CLI（gh）' };
+  }
+
+  const result = await runCommand(
+    executable,
+    ['auth', 'status', '--active', '--hostname', 'github.com', '--json', 'hosts'],
+    { timeout: 10000 }
+  );
+  try {
+    const status = JSON.parse(result.stdout);
+    const account = status.hosts?.['github.com']?.find((item) => item.active) || status.hosts?.['github.com']?.[0];
+    if (account?.state === 'success') {
+      return {
+        installed: true,
+        loggedIn: true,
+        message: `已登录 GitHub（${account.login || 'github.com'}）`
+      };
+    }
+    if (account?.login) {
+      return {
+        installed: true,
+        loggedIn: false,
+        message: `已配置 GitHub 账号 ${account.login}，但当前无法验证登录状态`
+      };
+    }
+  } catch {}
+
+  return {
+    installed: true,
+    loggedIn: false,
+    message: result.stderr || 'GitHub 尚未登录'
+  };
+}
+
+async function openTerminalCommand(commandParts, successMessage) {
+  if (process.platform !== 'darwin') {
+    return { ok: false, message: `请在终端运行：${commandParts.join(' ')}` };
+  }
+
+  const command = commandParts.map(quoteShellArgument).join(' ');
+  const script = [
+    'tell application "Terminal"',
+    'activate',
+    `do script "${escapeAppleScriptString(command)}"`,
+    'end tell'
+  ];
+  const result = await runCommand('/usr/bin/osascript', script.flatMap((line) => ['-e', line]), { timeout: 10000 });
+  return {
+    ok: result.ok,
+    message: result.ok ? successMessage : result.stderr || '无法打开终端'
+  };
+}
+
+async function openGithubLogin() {
+  const executable = await findExecutable('gh');
+  if (!executable) {
+    return { ok: false, message: '未找到 GitHub CLI（gh），请先安装' };
+  }
+  return openTerminalCommand(
+    [executable, 'auth', 'login', '--hostname', 'github.com', '--web'],
+    '已打开终端，请完成 GitHub 登录后返回检查状态'
+  );
 }
 
 async function getAiStatus(provider) {
@@ -183,23 +268,11 @@ async function openAiLogin(provider) {
   if (!executable) {
     return { ok: false, message: `未找到 ${provider} CLI，请先安装` };
   }
-  if (process.platform !== 'darwin') {
-    return { ok: false, message: `请在终端运行：${provider === 'codex' ? 'codex login' : 'claude auth login'}` };
-  }
-
   const loginArgs = provider === 'codex' ? ['login'] : ['auth', 'login'];
-  const command = [executable, ...loginArgs].map(quoteShellArgument).join(' ');
-  const script = [
-    'tell application "Terminal"',
-    'activate',
-    `do script "${escapeAppleScriptString(command)}"`,
-    'end tell'
-  ];
-  const result = await runCommand('/usr/bin/osascript', script.flatMap((line) => ['-e', line]), { timeout: 10000 });
-  return {
-    ok: result.ok,
-    message: result.ok ? '已打开终端，请完成登录后返回检查状态' : result.stderr || '无法打开终端'
-  };
+  return openTerminalCommand(
+    [executable, ...loginArgs],
+    '已打开终端，请完成登录后返回检查状态'
+  );
 }
 
 function cleanAiText(text) {
@@ -303,6 +376,31 @@ async function getVerifiedClipboardContext(text) {
     return 'GitHub PR metadata: unavailable. Do not infer or guess any PR title from the URL.';
   }
   return `Verified GitHub PR metadata:\n${JSON.stringify(metadata, null, 2)}`;
+}
+
+async function addGithubPullRequestTitle(entryId, text) {
+  const url = exactGithubPullRequestUrl(text);
+  if (!url) return;
+
+  const executable = await findExecutable('gh');
+  if (!executable) return;
+
+  const result = await runCommand(executable, ['pr', 'view', url, '--json', 'title,number'], { timeout: 15000 });
+  if (!result.ok) return;
+
+  try {
+    const pullRequest = JSON.parse(result.stdout);
+    const entry = entries.find((item) => item.id === entryId);
+    if (!entry || entry.text !== text || entry.noteSource === 'manual') return;
+
+    entry.note = `PR #${pullRequest.number} · ${pullRequest.title}`;
+    entry.noteSource = 'github-pr-title';
+    entry.updatedAt = nowIso();
+    await writeStore();
+    emitEntriesChanged({ type: 'updated', entry: toRendererEntry(entry) });
+  } catch (error) {
+    console.error('Failed to parse GitHub pull request metadata:', error);
+  }
 }
 
 async function processClipboardTextWithAi({ entryId, text, provider, instruction }) {
@@ -594,7 +692,12 @@ function addClipboardText(text, source = 'Clipboard') {
   entries.unshift(entry);
   emitEntriesChanged();
   writeStore().catch((error) => console.error('Failed to persist clipboard text:', error));
-  if (entry.noteSource !== 'manual') {
+  const shouldFetchPullRequestTitle = settings.fetchGithubPullRequestTitles && Boolean(exactGithubPullRequestUrl(normalized));
+  if (shouldFetchPullRequestTitle && entry.noteSource !== 'manual') {
+    addGithubPullRequestTitle(entry.id, normalized).catch((error) => {
+      console.error('Failed to fetch GitHub pull request title:', error);
+    });
+  } else if (entry.noteSource !== 'manual') {
     enqueueClipboardAiProcessing(entry.id, normalized);
   }
   return entry;
@@ -834,6 +937,10 @@ ipcMain.handle('entries:list', (_event, options) => queryRendererEntries(options
 
 ipcMain.handle('settings:get', () => settings);
 
+ipcMain.handle('github:status', () => getGithubStatus());
+
+ipcMain.handle('github:login', () => openGithubLogin());
+
 ipcMain.handle('ai:status', (_event, provider) => getAiStatus(provider));
 
 ipcMain.handle('ai:login', (_event, provider) => openAiLogin(provider));
@@ -857,6 +964,7 @@ ipcMain.handle('settings:update', async (_event, nextSettings) => {
     ...settings,
     removeBlankLines: Boolean(nextSettings.removeBlankLines),
     trimLeadingSpaces: Boolean(nextSettings.trimLeadingSpaces),
+    fetchGithubPullRequestTitles: Boolean(nextSettings.fetchGithubPullRequestTitles),
     aiProvider: AI_PROVIDERS.has(nextSettings.aiProvider) ? nextSettings.aiProvider : DEFAULT_SETTINGS.aiProvider,
     aiInstruction: String(nextSettings.aiInstruction || '').trim().slice(0, 1000),
     shortcut: normalizeShortcut(nextSettings.shortcut),

@@ -93,6 +93,17 @@
             <input id="trimLeadingSpacesToggle" type="checkbox" />
             <span>去除首行前空格</span>
           </label>
+          <label class="settings-check">
+            <input id="fetchGithubPullRequestTitlesToggle" type="checkbox" />
+            <span>自动获取 GitHub PR 标题</span>
+          </label>
+          <label class="settings-field">
+            <span>GitHub 登录</span>
+            <button id="githubLoginButton" class="shortcut-record" type="button">检查状态</button>
+          </label>
+          <div id="githubStatus" class="settings-note">
+            使用本机 GitHub CLI（gh），只读取严格匹配的 PR 链接。
+          </div>
           <label class="settings-field">
             <span>AI 提供商</span>
             <select id="aiProviderSelect">

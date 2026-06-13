@@ -27,6 +27,9 @@ const noteInput = document.getElementById('noteInput');
 const pinButton = document.getElementById('pinButton');
 const removeBlankLinesToggle = document.getElementById('removeBlankLinesToggle');
 const trimLeadingSpacesToggle = document.getElementById('trimLeadingSpacesToggle');
+const fetchGithubPullRequestTitlesToggle = document.getElementById('fetchGithubPullRequestTitlesToggle');
+const githubLoginButton = document.getElementById('githubLoginButton');
+const githubStatus = document.getElementById('githubStatus');
 const aiProviderSelect = document.getElementById('aiProviderSelect');
 const aiLoginButton = document.getElementById('aiLoginButton');
 const aiStatus = document.getElementById('aiStatus');
@@ -150,6 +153,7 @@ function readSettingsForm() {
   return {
     removeBlankLines: removeBlankLinesToggle.checked,
     trimLeadingSpaces: trimLeadingSpacesToggle.checked,
+    fetchGithubPullRequestTitles: fetchGithubPullRequestTitlesToggle.checked,
     aiProvider: aiProviderSelect.value,
     aiInstruction: aiInstructionInput.value,
     shortcut: shortcutRecordButton.dataset.shortcut || 'Control+P',
@@ -161,6 +165,7 @@ function applySettingsToForm(settings) {
   state.settings = { ...settings };
   removeBlankLinesToggle.checked = Boolean(settings.removeBlankLines);
   trimLeadingSpacesToggle.checked = Boolean(settings.trimLeadingSpaces);
+  fetchGithubPullRequestTitlesToggle.checked = Boolean(settings.fetchGithubPullRequestTitles);
   aiProviderSelect.value = settings.aiProvider || 'none';
   aiInstructionInput.value = settings.aiInstruction || '';
   aiInstructionInput.disabled = true;
@@ -208,6 +213,18 @@ async function refreshAiStatus() {
   aiLoginButton.disabled = !status.installed;
   aiInstructionInput.disabled = !status.loggedIn;
   aiTestButton.disabled = !status.loggedIn;
+  return status;
+}
+
+async function refreshGithubStatus() {
+  githubLoginButton.disabled = true;
+  githubLoginButton.textContent = '检查中...';
+  githubStatus.textContent = '正在检查 GitHub CLI 登录状态...';
+
+  const status = await window.goodcopy.getGithubStatus();
+  githubStatus.textContent = `${status.message}。GoodCopy 不保存 GitHub token。`;
+  githubLoginButton.textContent = status.loggedIn ? '已登录 · 重新检查' : status.installed ? '打开终端登录' : '未安装';
+  githubLoginButton.disabled = !status.installed;
   return status;
 }
 
@@ -549,7 +566,22 @@ document.getElementById('settingsButton').addEventListener('click', () => {
   }
   settingsModal.hidden = false;
   refreshAccessibilityStatus();
+  refreshGithubStatus();
   refreshAiStatus();
+});
+
+githubLoginButton.addEventListener('click', async () => {
+  const status = await window.goodcopy.getGithubStatus();
+  if (status.loggedIn) {
+    await refreshGithubStatus();
+    return;
+  }
+
+  const result = await window.goodcopy.loginGithub();
+  githubStatus.textContent = result.message;
+  if (result.ok) {
+    setTimeout(refreshGithubStatus, 3000);
+  }
 });
 
 aiProviderSelect.addEventListener('change', refreshAiStatus);
