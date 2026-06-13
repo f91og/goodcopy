@@ -306,6 +306,14 @@ textarea {
   padding: 0;
 }
 
+.entry-load-status {
+  min-height: 30px;
+  padding: 8px 12px 0;
+  color: #696969;
+  font-size: calc(var(--entry-title-size) * 0.72);
+  text-align: center;
+}
+
 .entry-item {
   display: grid;
   grid-template-columns: var(--entry-icon-size) 1fr;

@@ -3,10 +3,16 @@ const state = {
   selectedId: null,
   draftTags: [],
   draftNote: '',
-  settings: null
+  settings: null,
+  totalEntries: 0,
+  hasMoreEntries: false,
+  isLoadingEntries: false
 };
 
+const ENTRY_PAGE_SIZE = 50;
 const entryList = document.getElementById('entryList');
+const entryPane = document.querySelector('.entry-pane');
+const entryLoadStatus = document.getElementById('entryLoadStatus');
 const searchInput = document.getElementById('searchInput');
 const typeFilter = document.getElementById('typeFilter');
 const previewEditor = document.getElementById('previewEditor');
@@ -36,6 +42,8 @@ const storageUsage = document.getElementById('storageUsage');
 const clearUntaggedButton = document.getElementById('clearUntaggedButton');
 const clearUntaggedStatus = document.getElementById('clearUntaggedStatus');
 let isTagInputComposing = false;
+let entryLoadRequestId = 0;
+let searchTimer;
 const PANE_WIDTH_STORAGE_KEY = 'goodcopy.entryPaneWidth';
 const DEFAULT_ENTRY_PANE_RATIO = 0.38;
 const MIN_ENTRY_PANE_WIDTH = 220;
@@ -262,32 +270,8 @@ function eventToShortcut(event) {
   return [...new Set(parts)].join('+');
 }
 
-function sortedEntries(entries) {
-  return [...entries].sort((a, b) => {
-    if (Boolean(a.pinned) !== Boolean(b.pinned)) {
-      return a.pinned ? -1 : 1;
-    }
-    return 0;
-  });
-}
-
 function filteredEntries() {
-  const query = searchInput.value.trim().toLowerCase();
-  const filter = typeFilter.value;
-
-  return sortedEntries(state.entries.filter((entry) => {
-    const tags = Array.isArray(entry.tags) ? entry.tags : [];
-    const haystack = `${entry.title || ''} ${entry.note || ''} ${entry.text || ''} ${entry.contentType || ''} ${tags.join(' ')}`.toLowerCase();
-    const matchesQuery = !query || haystack.includes(query);
-    const matchesType =
-      filter === 'all' ||
-      (filter === 'text' && entry.contentType === 'Text') ||
-      (filter === 'image' && entry.contentType === 'Image') ||
-      (filter === 'tagged' && tags.length > 0) ||
-      (filter === 'untagged' && tags.length === 0);
-
-    return matchesQuery && matchesType;
-  }));
+  return state.entries;
 }
 
 function setDraftFromEntry(entry) {
@@ -323,13 +307,6 @@ function selectEntryByOffset(offset) {
   document.querySelector(`[data-id="${state.selectedId}"]`)?.scrollIntoView({ block: 'nearest' });
 }
 
-function selectFirstEntry() {
-  const entries = filteredEntries();
-  setDraftFromEntry(entries[0] || null);
-  renderEntries();
-  entryList.scrollTop = 0;
-}
-
 async function pasteSelectedEntry() {
   const entry = selectedEntry();
   if (!entry) return;
@@ -352,11 +329,12 @@ async function pasteSelectedEntry() {
 function renderEntries() {
   const entries = filteredEntries();
   entryList.innerHTML = '';
+  renderEntryLoadStatus();
 
   if (!entries.length) {
     const empty = document.createElement('li');
     empty.className = 'empty-state';
-    empty.textContent = '没有匹配的剪贴板记录';
+    empty.textContent = state.isLoadingEntries ? '正在加载...' : '没有匹配的剪贴板记录';
     entryList.append(empty);
     setDraftFromEntry(null);
     return;
@@ -422,6 +400,18 @@ function renderEntries() {
   }
 }
 
+function renderEntryLoadStatus() {
+  if (state.isLoadingEntries) {
+    entryLoadStatus.textContent = '加载中...';
+    return;
+  }
+  if (state.hasMoreEntries) {
+    entryLoadStatus.textContent = `已加载 ${state.entries.length} / ${state.totalEntries}，继续滚动加载`;
+    return;
+  }
+  entryLoadStatus.textContent = state.totalEntries ? `已加载全部 ${state.totalEntries} 条` : '';
+}
+
 function renderTags() {
   tagList.innerHTML = '';
 
@@ -485,10 +475,43 @@ function addTagFromInput() {
   saveCurrentEntry();
 }
 
-async function loadEntries() {
-  state.entries = await window.goodcopy.listEntries();
-  renderEntries();
-  await refreshStorageUsage();
+async function loadEntries({ reset = false } = {}) {
+  if (state.isLoadingEntries && !reset) return;
+
+  const requestId = reset ? ++entryLoadRequestId : entryLoadRequestId;
+  const offset = reset ? 0 : state.entries.length;
+  state.isLoadingEntries = true;
+  if (reset) {
+    state.entries = [];
+    state.totalEntries = 0;
+    state.hasMoreEntries = false;
+    renderEntries();
+  }
+  renderEntryLoadStatus();
+
+  try {
+    const result = await window.goodcopy.listEntries({
+      offset,
+      limit: ENTRY_PAGE_SIZE,
+      query: searchInput.value,
+      filter: typeFilter.value
+    });
+    if (requestId !== entryLoadRequestId) return;
+
+    state.entries = reset ? result.entries : [...state.entries, ...result.entries];
+    state.totalEntries = result.total;
+    state.hasMoreEntries = result.hasMore;
+    if (reset) {
+      state.selectedId = null;
+      entryPane.scrollTop = 0;
+    }
+    renderEntries();
+  } finally {
+    if (requestId === entryLoadRequestId) {
+      state.isLoadingEntries = false;
+      renderEntryLoadStatus();
+    }
+  }
 }
 
 document.getElementById('closeButton').addEventListener('click', () => {
@@ -612,9 +635,8 @@ clearUntaggedButton.addEventListener('click', async () => {
 
   try {
     const result = await window.goodcopy.clearUntaggedEntries();
-    state.entries = result.entries;
     state.selectedId = null;
-    renderEntries();
+    await loadEntries({ reset: true });
     storageUsage.textContent = storageText(result.storage);
     clearUntaggedStatus.textContent = `已清除 ${result.removed} 条 untagged 历史记录。`;
   } finally {
@@ -666,9 +688,9 @@ document.getElementById('copyButton').addEventListener('click', async () => {
 document.getElementById('deleteButton').addEventListener('click', async () => {
   const entry = selectedEntry();
   if (!entry) return;
-  state.entries = await window.goodcopy.deleteEntry(entry.id);
+  await window.goodcopy.deleteEntry(entry.id);
   state.selectedId = null;
-  renderEntries();
+  await loadEntries({ reset: true });
 });
 
 previewEditor.addEventListener('keydown', (event) => {
@@ -708,15 +730,31 @@ noteInput.addEventListener('blur', () => {
   saveCurrentEntry();
 });
 
-searchInput.addEventListener('input', renderEntries);
-searchInput.addEventListener('keydown', (event) => {
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    loadEntries({ reset: true });
+  }, 180);
+});
+searchInput.addEventListener('keydown', async (event) => {
   if (event.key === 'Enter' && !event.isComposing) {
     event.preventDefault();
     event.stopPropagation();
+    clearTimeout(searchTimer);
+    await loadEntries({ reset: true });
     pasteSelectedEntry();
   }
 });
-typeFilter.addEventListener('change', renderEntries);
+typeFilter.addEventListener('change', () => {
+  loadEntries({ reset: true });
+});
+
+entryPane.addEventListener('scroll', () => {
+  const distanceFromBottom = entryPane.scrollHeight - entryPane.scrollTop - entryPane.clientHeight;
+  if (distanceFromBottom < 160 && state.hasMoreEntries && !state.isLoadingEntries) {
+    loadEntries();
+  }
+});
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !settingsModal.hidden) {
@@ -758,19 +796,30 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
-window.goodcopy.onEntriesChanged((entries) => {
-  state.entries = entries;
-  const entry = selectedEntry();
-  if (entry && document.activeElement !== noteInput && entry.note !== state.draftNote) {
-    state.draftNote = entry.note || '';
-    noteInput.value = state.draftNote;
+window.goodcopy.onEntriesChanged((change) => {
+  if (change?.type === 'updated' && change.entry) {
+    if (searchInput.value.trim() || typeFilter.value !== 'all') {
+      loadEntries({ reset: true });
+      refreshStorageUsage();
+      return;
+    }
+    const index = state.entries.findIndex((entry) => entry.id === change.entry.id);
+    if (index !== -1) {
+      state.entries[index] = change.entry;
+      if (state.selectedId === change.entry.id && document.activeElement !== noteInput) {
+        state.draftNote = change.entry.note || '';
+        noteInput.value = state.draftNote;
+      }
+      renderEntries();
+    }
+  } else {
+    loadEntries({ reset: true });
   }
-  renderEntries();
   refreshStorageUsage();
 });
 
-window.goodcopy.onPanelOpened(() => {
-  selectFirstEntry();
+window.goodcopy.onPanelOpened(async () => {
+  await loadEntries({ reset: true });
   searchInput.focus();
   searchInput.select();
 });
@@ -778,7 +827,8 @@ window.goodcopy.onPanelOpened(() => {
 async function boot() {
   restoreEntryPaneWidth();
   applySettingsToForm(await window.goodcopy.getSettings());
-  await loadEntries();
+  await loadEntries({ reset: true });
+  await refreshStorageUsage();
 }
 
 boot();

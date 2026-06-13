@@ -338,7 +338,7 @@ async function processClipboardTextWithAi({ entryId, text, provider, instruction
   entry.noteSource = 'ai';
   entry.updatedAt = nowIso();
   await writeStore();
-  emitEntriesChanged();
+  emitEntriesChanged({ type: 'updated', entry: toRendererEntry(entry) });
 }
 
 async function drainAiQueue() {
@@ -384,12 +384,37 @@ function toRendererEntry(entry) {
   };
 }
 
-function toRendererEntries() {
-  return entries.map(toRendererEntry);
+function queryRendererEntries(options = {}) {
+  const offset = Math.max(0, Number.parseInt(options.offset, 10) || 0);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(options.limit, 10) || 50));
+  const query = String(options.query || '').trim().toLowerCase();
+  const filter = ['all', 'text', 'image', 'tagged', 'untagged'].includes(options.filter) ? options.filter : 'all';
+  const matchedEntries = entries
+    .filter((entry) => {
+      const tags = Array.isArray(entry.tags) ? entry.tags : [];
+      const haystack = `${entry.title || ''} ${entry.note || ''} ${entry.text || ''} ${entry.contentType || ''} ${tags.join(' ')}`.toLowerCase();
+      const matchesQuery = !query || haystack.includes(query);
+      const matchesType =
+        filter === 'all' ||
+        (filter === 'text' && entry.contentType === 'Text') ||
+        (filter === 'image' && entry.contentType === 'Image') ||
+        (filter === 'tagged' && tags.length > 0) ||
+        (filter === 'untagged' && tags.length === 0);
+      return matchesQuery && matchesType;
+    })
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+  const total = matchedEntries.length;
+
+  return {
+    entries: matchedEntries.slice(offset, offset + limit).map(toRendererEntry),
+    offset,
+    total,
+    hasMore: offset + limit < total
+  };
 }
 
-function emitEntriesChanged() {
-  mainWindow?.webContents.send('entries-changed', toRendererEntries());
+function emitEntriesChanged(change = { type: 'reset' }) {
+  mainWindow?.webContents.send('entries-changed', change);
 }
 
 function migrateLegacyAutoNote(entry) {
@@ -543,7 +568,7 @@ function addClipboardText(text, source = 'Clipboard') {
     const migratedEntry = migrateLegacyAutoNote(entries[0]);
     if (migratedEntry !== entries[0]) {
       entries[0] = migratedEntry;
-      emitEntriesChanged();
+      emitEntriesChanged({ type: 'updated', entry: toRendererEntry(migratedEntry) });
       writeStore().catch((error) => console.error('Failed to persist migrated clipboard entry:', error));
       enqueueClipboardAiProcessing(migratedEntry.id, normalized);
     }
@@ -805,7 +830,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });
 
-ipcMain.handle('entries:list', () => toRendererEntries());
+ipcMain.handle('entries:list', (_event, options) => queryRendererEntries(options));
 
 ipcMain.handle('settings:get', () => settings);
 
@@ -854,6 +879,7 @@ ipcMain.handle('entries:update', async (_event, nextEntry) => {
   if (index === -1) return null;
 
   const current = entries[index];
+  const previousPinned = Boolean(current.pinned);
   const text = current.contentType === 'Text' ? normalizeText(nextEntry.text) : current.text || '';
   entries[index] = {
     ...current,
@@ -867,8 +893,13 @@ ipcMain.handle('entries:update', async (_event, nextEntry) => {
   };
 
   await writeStore();
-  emitEntriesChanged();
-  return toRendererEntry(entries[index]);
+  const updatedEntry = toRendererEntry(entries[index]);
+  emitEntriesChanged(
+    previousPinned === Boolean(entries[index].pinned)
+      ? { type: 'updated', entry: updatedEntry }
+      : { type: 'reset' }
+  );
+  return updatedEntry;
 });
 
 ipcMain.handle('entries:delete', async (_event, id) => {
@@ -879,14 +910,13 @@ ipcMain.handle('entries:delete', async (_event, id) => {
     fs.unlink(entry.imagePath).catch(() => {});
   }
   emitEntriesChanged();
-  return toRendererEntries();
+  return true;
 });
 
 ipcMain.handle('entries:clear-untagged', async () => {
   const removed = entries.filter((entry) => !Array.isArray(entry.tags) || entry.tags.length === 0);
   if (!removed.length) {
     return {
-      entries: toRendererEntries(),
       removed: 0,
       storage: await getStorageUsage()
     };
@@ -903,7 +933,6 @@ ipcMain.handle('entries:clear-untagged', async () => {
 
   emitEntriesChanged();
   return {
-    entries: toRendererEntries(),
     removed: removed.length,
     storage: await getStorageUsage()
   };
@@ -947,7 +976,9 @@ ipcMain.handle('entries:paste', async (_event, payload) => {
   }
   mainWindow?.hide();
   if (shouldEmitEntriesChanged) {
-    setTimeout(emitEntriesChanged, 0);
+    setTimeout(() => {
+      emitEntriesChanged({ type: 'updated', entry: toRendererEntry(entry) });
+    }, 0);
   }
 
   setTimeout(() => {

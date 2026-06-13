@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('goodcopy', {
-  listEntries: () => ipcRenderer.invoke('entries:list'),
+  listEntries: (options) => ipcRenderer.invoke('entries:list', options),
   updateEntry: (entry) => ipcRenderer.invoke('entries:update', entry),
   deleteEntry: (id) => ipcRenderer.invoke('entries:delete', id),
   clearUntaggedEntries: () => ipcRenderer.invoke('entries:clear-untagged'),
@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('goodcopy', {
   hideWindow: () => ipcRenderer.invoke('window:hide'),
   quitApp: () => ipcRenderer.invoke('app:quit'),
   onEntriesChanged: (callback) => {
-    ipcRenderer.on('entries-changed', (_event, entries) => callback(entries));
+    ipcRenderer.on('entries-changed', (_event, change) => callback(change));
   },
   onPanelOpened: (callback) => {
     ipcRenderer.on('panel-opened', callback);
