@@ -583,6 +583,25 @@ textarea {
   gap: 10px;
 }
 
+.footer-shortcut-hint {
+  display: grid;
+  gap: 1px;
+  color: #555;
+  line-height: 1.05;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.footer-shortcut-hint span:first-child {
+  font-size: var(--footer-button-size);
+  font-weight: 650;
+}
+
+.footer-shortcut-hint span:last-child {
+  font-size: calc(var(--footer-button-size) * 0.72);
+  font-weight: 550;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

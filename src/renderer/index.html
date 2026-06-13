@@ -53,7 +53,7 @@
 
           <div class="tool-row">
             <button id="pinButton" class="tool-button pin-button" type="button">Pin</button>
-            <button id="oneLineButton" class="tool-button text-only-control" type="button">多行变为一行</button>
+            <button id="oneLineButton" class="tool-button text-only-control" type="button">变为一行</button>
             <div id="tagList" class="tag-list"></div>
             <input id="tagInput" class="tag-input" type="text" placeholder="输入 tag 后回车" />
           </div>
@@ -66,7 +66,10 @@
           <span id="storageUsage" class="storage-usage">--</span>
         </div>
         <div class="footer-actions">
-          <button id="pasteButton" class="footer-button strong" type="button">Paste</button>
+          <div class="footer-shortcut-hint">
+            <span>Shift Enter</span>
+            <span>Pin to desktop</span>
+          </div>
           <button id="copyButton" class="footer-button" type="button">Copy</button>
           <button id="deleteButton" class="footer-button danger" type="button">Delete</button>
           <button id="settingsButton" class="footer-button" type="button">设置</button>

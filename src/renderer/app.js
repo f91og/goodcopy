@@ -717,10 +717,6 @@ settingsModal.addEventListener('click', (event) => {
   }
 });
 
-document.getElementById('pasteButton').addEventListener('click', async () => {
-  await pasteSelectedEntry();
-});
-
 document.getElementById('copyButton').addEventListener('click', async () => {
   const entry = await saveCurrentEntry();
   if (entry) {
