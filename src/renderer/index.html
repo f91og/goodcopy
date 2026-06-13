@@ -13,7 +13,6 @@
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <button class="icon-button" id="closeButton" type="button" title="关闭">←</button>
         <input id="searchInput" class="search-input" type="search" placeholder="Type to filter entries..." />
         <select id="typeFilter" class="type-filter" aria-label="类型过滤">
           <option value="all">All Types</option>
@@ -62,7 +61,6 @@
       </section>
 
       <footer class="footerbar">
-        <div class="brand-mark">▣</div>
         <div class="footer-meta">
           <span>Clipboard History</span>
           <span id="storageUsage" class="storage-usage">--</span>
@@ -72,7 +70,7 @@
           <button id="copyButton" class="footer-button" type="button">Copy</button>
           <button id="deleteButton" class="footer-button danger" type="button">Delete</button>
           <button id="settingsButton" class="footer-button" type="button">设置</button>
-          <span class="shortcut">Ctrl P</span>
+          <button id="aiSettingsButton" class="footer-button" type="button">AI</button>
         </div>
       </footer>
     </main>
@@ -84,7 +82,7 @@
           <button id="settingsCloseButton" class="icon-button" type="button" title="关闭">×</button>
         </header>
 
-        <div class="settings-body">
+        <div id="generalSettingsBody" class="settings-body">
           <label class="settings-check">
             <input id="removeBlankLinesToggle" type="checkbox" />
             <span>去除所有空行</span>
@@ -104,32 +102,6 @@
           <div id="githubStatus" class="settings-note">
             使用本机 GitHub CLI（gh），只读取严格匹配的 PR 链接。
           </div>
-          <label class="settings-field">
-            <span>AI 提供商</span>
-            <select id="aiProviderSelect">
-              <option value="none">不使用 AI</option>
-              <option value="codex">Codex</option>
-              <option value="claude">Claude</option>
-            </select>
-          </label>
-          <label class="settings-field">
-            <span>AI 登录</span>
-            <button id="aiLoginButton" class="shortcut-record" type="button">检查状态</button>
-          </label>
-          <div id="aiStatus" class="settings-note">复用本机 CLI 登录，不会保存账号或 token。</div>
-          <label class="settings-instruction">
-            <span>复制内容自动处理</span>
-            <textarea
-              id="aiInstructionInput"
-              rows="3"
-              maxlength="1000"
-              placeholder="例如：如果复制的是 GitHub PR 链接，就在描述里加入这个 PR 的标题"
-              disabled
-            ></textarea>
-            <button id="aiTestButton" class="shortcut-record ai-test-button" type="button" disabled>测试 AI</button>
-          </label>
-          <div class="settings-note">AI 会读取新复制的文本，并按这条指令生成描述。</div>
-
           <label class="settings-field">
             <span>呼出快捷键</span>
             <button id="shortcutRecordButton" class="shortcut-record" type="button">Ctrl P</button>
@@ -157,9 +129,35 @@
           <div id="clearUntaggedStatus" class="settings-note">只删除没有 tag 的历史记录，已打 tag 的记录会保留。</div>
         </div>
 
+        <div id="aiSettingsBody" class="settings-body" hidden>
+          <label class="settings-field">
+            <span>AI 提供商</span>
+            <select id="aiProviderSelect">
+              <option value="none">不使用 AI</option>
+              <option value="codex">Codex</option>
+              <option value="claude">Claude</option>
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>AI 登录</span>
+            <button id="aiLoginButton" class="shortcut-record" type="button">检查状态</button>
+          </label>
+          <div id="aiStatus" class="settings-note">复用本机 CLI 登录，不会保存账号或 token。</div>
+          <label class="settings-instruction">
+            <textarea
+              id="aiInstructionInput"
+              rows="3"
+              maxlength="1000"
+              placeholder="想让 AI 做什么"
+              disabled
+            ></textarea>
+            <button id="aiTestButton" class="shortcut-record ai-test-button" type="button" disabled>测试 AI</button>
+          </label>
+        </div>
+
         <footer class="settings-footer">
           <button id="quitAppButton" class="footer-button danger" type="button">退出应用</button>
-          <button id="settingsSaveButton" class="footer-button strong" type="button">保存设置</button>
+          <button id="settingsSaveButton" class="footer-button strong" type="button">保存</button>
         </footer>
       </section>
     </div>

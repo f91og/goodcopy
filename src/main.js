@@ -43,6 +43,7 @@ const DEFAULT_SETTINGS = {
 };
 const AI_PROVIDERS = new Set(['none', 'codex', 'claude']);
 const AI_COMMAND_TIMEOUT_MS = 60000;
+const LEGACY_GITHUB_AI_INSTRUCTION = '如果我复制的github的pr链接，请给我在描述的地方加入pr的标题';
 
 const WINDOW_SIZES = {
   small: { width: 900, height: 580 },
@@ -565,6 +566,10 @@ async function readSettings() {
       ...JSON.parse(raw)
     };
     delete settings.fetchPullRequestTitles;
+    if (settings.aiInstruction === LEGACY_GITHUB_AI_INSTRUCTION) {
+      settings.aiInstruction = '';
+      await writeSettings();
+    }
     settings.shortcut = normalizeShortcut(settings.shortcut);
   } catch (error) {
     if (error.code !== 'ENOENT') {

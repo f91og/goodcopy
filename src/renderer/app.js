@@ -35,10 +35,14 @@ const aiLoginButton = document.getElementById('aiLoginButton');
 const aiStatus = document.getElementById('aiStatus');
 const aiInstructionInput = document.getElementById('aiInstructionInput');
 const aiTestButton = document.getElementById('aiTestButton');
+const aiSettingsButton = document.getElementById('aiSettingsButton');
 const shortcutRecordButton = document.getElementById('shortcutRecordButton');
 const windowSizeSelect = document.getElementById('windowSizeSelect');
 const settingsModal = document.getElementById('settingsModal');
-const shortcutLabel = document.querySelector('.shortcut');
+const settingsTitle = document.getElementById('settingsTitle');
+const generalSettingsBody = document.getElementById('generalSettingsBody');
+const aiSettingsBody = document.getElementById('aiSettingsBody');
+const quitAppButton = document.getElementById('quitAppButton');
 const accessibilityButton = document.getElementById('accessibilityButton');
 const accessibilityStatus = document.getElementById('accessibilityStatus');
 const storageUsage = document.getElementById('storageUsage');
@@ -175,7 +179,6 @@ function applySettingsToForm(settings) {
   windowSizeSelect.value = settings.windowSize || 'medium';
   document.documentElement.classList.remove('size-small', 'size-medium', 'size-large');
   document.documentElement.classList.add(`size-${windowSizeSelect.value}`);
-  shortcutLabel.textContent = shortcutText(shortcutRecordButton.dataset.shortcut);
 }
 
 async function saveSettings() {
@@ -531,10 +534,6 @@ async function loadEntries({ reset = false } = {}) {
   }
 }
 
-document.getElementById('closeButton').addEventListener('click', () => {
-  window.goodcopy.hideWindow();
-});
-
 document.getElementById('oneLineButton').addEventListener('click', () => {
   if (selectedEntry()?.contentType === 'Image') return;
   previewEditor.value = previewEditor.value.replace(/\s*\n+\s*/g, ' ').replace(/[ \t]{2,}/g, ' ').trim();
@@ -560,14 +559,30 @@ pinButton.addEventListener('click', async () => {
   }
 });
 
-document.getElementById('settingsButton').addEventListener('click', () => {
+function openSettings(view = 'general') {
   if (state.settings) {
     applySettingsToForm(state.settings);
   }
+  const isAiView = view === 'ai';
+  settingsTitle.textContent = isAiView ? 'AI' : '设置';
+  generalSettingsBody.hidden = isAiView;
+  aiSettingsBody.hidden = !isAiView;
+  quitAppButton.hidden = isAiView;
   settingsModal.hidden = false;
-  refreshAccessibilityStatus();
-  refreshGithubStatus();
-  refreshAiStatus();
+  if (isAiView) {
+    refreshAiStatus();
+  } else {
+    refreshAccessibilityStatus();
+    refreshGithubStatus();
+  }
+}
+
+document.getElementById('settingsButton').addEventListener('click', () => {
+  openSettings();
+});
+
+aiSettingsButton.addEventListener('click', () => {
+  openSettings('ai');
 });
 
 githubLoginButton.addEventListener('click', async () => {
@@ -608,8 +623,7 @@ aiTestButton.addEventListener('click', async () => {
   try {
     const result = await window.goodcopy.testAi(aiProviderSelect.value);
     if (result.ok) {
-      aiInstructionInput.value = result.response;
-      aiStatus.textContent = 'AI 测试成功。';
+      aiStatus.textContent = `AI 测试成功：${result.response}`;
     } else {
       aiStatus.textContent = result.message;
     }
@@ -690,7 +704,7 @@ document.getElementById('settingsSaveButton').addEventListener('click', async ()
   settingsModal.hidden = true;
 });
 
-document.getElementById('quitAppButton').addEventListener('click', () => {
+quitAppButton.addEventListener('click', () => {
   window.goodcopy.quitApp();
 });
 
