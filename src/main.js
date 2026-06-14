@@ -487,12 +487,17 @@ function queryRendererEntries(options = {}) {
   const offset = Math.max(0, Number.parseInt(options.offset, 10) || 0);
   const limit = Math.min(100, Math.max(1, Number.parseInt(options.limit, 10) || 50));
   const query = String(options.query || '').trim().toLowerCase();
+  const tagQuery = query.startsWith('#') ? query.slice(1) : '';
   const filter = ['all', 'text', 'image', 'tagged', 'untagged'].includes(options.filter) ? options.filter : 'all';
   const matchedEntries = entries
     .filter((entry) => {
       const tags = Array.isArray(entry.tags) ? entry.tags : [];
       const haystack = `${entry.title || ''} ${entry.note || ''} ${entry.text || ''} ${entry.contentType || ''} ${tags.join(' ')}`.toLowerCase();
-      const matchesQuery = !query || haystack.includes(query);
+      const matchesQuery =
+        !query ||
+        (tagQuery
+          ? tags.some((tag) => String(tag).toLowerCase() === tagQuery)
+          : haystack.includes(query));
       const matchesType =
         filter === 'all' ||
         (filter === 'text' && entry.contentType === 'Text') ||
@@ -510,6 +515,22 @@ function queryRendererEntries(options = {}) {
     total,
     hasMore: offset + limit < total
   };
+}
+
+function listEntryTags() {
+  const counts = new Map();
+  for (const entry of entries) {
+    for (const tag of Array.isArray(entry.tags) ? entry.tags : []) {
+      const normalizedTag = String(tag).trim();
+      if (normalizedTag) {
+        counts.set(normalizedTag, (counts.get(normalizedTag) || 0) + 1);
+      }
+    }
+  }
+
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([tag]) => tag);
 }
 
 function emitEntriesChanged(change = { type: 'reset' }) {
@@ -939,6 +960,7 @@ app.on('will-quit', () => {
 });
 
 ipcMain.handle('entries:list', (_event, options) => queryRendererEntries(options));
+ipcMain.handle('entries:tags', () => listEntryTags());
 
 ipcMain.handle('settings:get', () => settings);
 

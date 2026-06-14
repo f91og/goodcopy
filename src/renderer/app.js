@@ -4,6 +4,7 @@ const state = {
   draftTags: [],
   draftNote: '',
   settings: null,
+  availableTags: [],
   totalEntries: 0,
   hasMoreEntries: false,
   isLoadingEntries: false
@@ -14,6 +15,7 @@ const entryList = document.getElementById('entryList');
 const entryPane = document.querySelector('.entry-pane');
 const entryLoadStatus = document.getElementById('entryLoadStatus');
 const searchInput = document.getElementById('searchInput');
+const tagSuggestions = document.getElementById('tagSuggestions');
 const typeFilter = document.getElementById('typeFilter');
 const previewEditor = document.getElementById('previewEditor');
 const imagePreview = document.getElementById('imagePreview');
@@ -22,7 +24,6 @@ const contentPane = document.querySelector('.content');
 const paneResizeHandle = document.getElementById('paneResizeHandle');
 const detailPane = document.querySelector('.detail-pane');
 const tagList = document.getElementById('tagList');
-const tagInput = document.getElementById('tagInput');
 const noteInput = document.getElementById('noteInput');
 const pinButton = document.getElementById('pinButton');
 const removeBlankLinesToggle = document.getElementById('removeBlankLinesToggle');
@@ -48,7 +49,7 @@ const accessibilityStatus = document.getElementById('accessibilityStatus');
 const storageUsage = document.getElementById('storageUsage');
 const clearUntaggedButton = document.getElementById('clearUntaggedButton');
 const clearUntaggedStatus = document.getElementById('clearUntaggedStatus');
-let isTagInputComposing = false;
+let isNoteInputComposing = false;
 let entryLoadRequestId = 0;
 let searchTimer;
 const PANE_WIDTH_STORAGE_KEY = 'goodcopy.entryPaneWidth';
@@ -294,6 +295,46 @@ function filteredEntries() {
   return state.entries;
 }
 
+function renderTagSuggestions() {
+  tagSuggestions.innerHTML = '';
+  if (typeFilter.value !== 'tagged') {
+    tagSuggestions.hidden = true;
+    return;
+  }
+
+  const query = searchInput.value.trim().toLowerCase().replace(/^#/, '');
+  const matchingTags = state.availableTags.filter((tag) => tag.toLowerCase().includes(query));
+  if (!matchingTags.length) {
+    tagSuggestions.hidden = true;
+    return;
+  }
+
+  for (const tag of matchingTags) {
+    const suggestion = document.createElement('button');
+    suggestion.type = 'button';
+    suggestion.textContent = `#${tag}`;
+    suggestion.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+    });
+    suggestion.addEventListener('click', () => {
+      searchInput.value = `#${tag}`;
+      tagSuggestions.hidden = true;
+      loadEntries({ reset: true });
+    });
+    tagSuggestions.append(suggestion);
+  }
+  tagSuggestions.hidden = false;
+}
+
+async function refreshTagSuggestions() {
+  if (typeFilter.value !== 'tagged') {
+    tagSuggestions.hidden = true;
+    return;
+  }
+  state.availableTags = await window.goodcopy.listTags();
+  renderTagSuggestions();
+}
+
 function setDraftFromEntry(entry) {
   state.selectedId = entry?.id || null;
   const isImage = entry?.contentType === 'Image';
@@ -482,17 +523,36 @@ async function saveCurrentEntry() {
   return updated;
 }
 
-function addTagFromInput() {
-  const tag = tagInput.value.trim().replace(/^#/, '');
-  if (!tag || state.draftTags.includes(tag)) {
-    tagInput.value = '';
-    return;
+function parseMetadataInput(value) {
+  const tags = [];
+  const descriptionParts = [];
+
+  for (const part of value.trim().split(/\s+/).filter(Boolean)) {
+    if (part.startsWith('#') && part.length > 1) {
+      const tag = part.slice(1);
+      if (!tags.includes(tag)) {
+        tags.push(tag);
+      }
+    } else {
+      descriptionParts.push(part);
+    }
   }
 
-  state.draftTags.push(tag);
-  tagInput.value = '';
+  return {
+    note: descriptionParts.join(' '),
+    tags
+  };
+}
+
+function commitMetadataInput() {
+  const { note, tags } = parseMetadataInput(noteInput.value);
+  if (note || !tags.length) {
+    state.draftNote = note;
+  }
+  state.draftTags = [...new Set([...state.draftTags, ...tags])];
+  noteInput.value = state.draftNote;
   renderTags();
-  saveCurrentEntry();
+  return saveCurrentEntry();
 }
 
 async function loadEntries({ reset = false } = {}) {
@@ -717,16 +777,6 @@ settingsModal.addEventListener('click', (event) => {
   }
 });
 
-document.getElementById('copyButton').addEventListener('click', async () => {
-  const entry = await saveCurrentEntry();
-  if (entry) {
-    const copied = await window.goodcopy.copyEntry(entry.id);
-    if (copied) {
-      window.goodcopy.hideWindow();
-    }
-  }
-});
-
 document.getElementById('deleteButton').addEventListener('click', async () => {
   const entry = selectedEntry();
   if (!entry) return;
@@ -742,52 +792,60 @@ previewEditor.addEventListener('keydown', (event) => {
   }
 });
 
-tagInput.addEventListener('compositionstart', () => {
-  isTagInputComposing = true;
+noteInput.addEventListener('compositionstart', () => {
+  isNoteInputComposing = true;
 });
 
-tagInput.addEventListener('compositionend', () => {
-  isTagInputComposing = false;
-});
-
-tagInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.isComposing && !isTagInputComposing && event.keyCode !== 229) {
-    event.preventDefault();
-    addTagFromInput();
-  }
+noteInput.addEventListener('compositionend', () => {
+  isNoteInputComposing = false;
 });
 
 noteInput.addEventListener('input', () => {
-  state.draftNote = noteInput.value.trim();
+  const { note, tags } = parseMetadataInput(noteInput.value);
+  if (note || !tags.length) {
+    state.draftNote = note;
+  }
 });
 
 noteInput.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.isComposing) {
+  if (event.key === 'Enter' && !event.isComposing && !isNoteInputComposing && event.keyCode !== 229) {
     event.preventDefault();
-    saveCurrentEntry();
+    commitMetadataInput();
   }
 });
 
 noteInput.addEventListener('blur', () => {
-  saveCurrentEntry();
+  commitMetadataInput();
 });
 
 searchInput.addEventListener('input', () => {
+  renderTagSuggestions();
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
+    searchTimer = null;
     loadEntries({ reset: true });
   }, 180);
+});
+searchInput.addEventListener('focus', () => {
+  renderTagSuggestions();
+});
+searchInput.addEventListener('blur', () => {
+  tagSuggestions.hidden = true;
 });
 searchInput.addEventListener('keydown', async (event) => {
   if (event.key === 'Enter' && !event.isComposing) {
     event.preventDefault();
     event.stopPropagation();
-    clearTimeout(searchTimer);
-    await loadEntries({ reset: true });
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
+      await loadEntries({ reset: true });
+    }
     pasteSelectedEntry();
   }
 });
-typeFilter.addEventListener('change', () => {
+typeFilter.addEventListener('change', async () => {
+  await refreshTagSuggestions();
   loadEntries({ reset: true });
 });
 
@@ -830,7 +888,6 @@ document.addEventListener('keydown', (event) => {
     !event.isComposing &&
     settingsModal.hidden &&
     document.activeElement !== previewEditor &&
-    document.activeElement !== tagInput &&
     document.activeElement !== noteInput
   ) {
     event.preventDefault();
@@ -839,6 +896,9 @@ document.addEventListener('keydown', (event) => {
 });
 
 window.goodcopy.onEntriesChanged((change) => {
+  if (typeFilter.value === 'tagged') {
+    refreshTagSuggestions();
+  }
   if (change?.type === 'updated' && change.entry) {
     if (searchInput.value.trim() || typeFilter.value !== 'all') {
       loadEntries({ reset: true });
@@ -862,6 +922,7 @@ window.goodcopy.onEntriesChanged((change) => {
 
 window.goodcopy.onPanelOpened(async () => {
   await loadEntries({ reset: true });
+  await refreshTagSuggestions();
   searchInput.focus();
   searchInput.select();
 });

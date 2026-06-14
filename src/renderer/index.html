@@ -13,9 +13,12 @@
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <input id="searchInput" class="search-input" type="search" placeholder="Type to filter entries..." />
+        <div class="search-field">
+          <input id="searchInput" class="search-input" type="search" placeholder="Type to filter entries..." />
+          <div id="tagSuggestions" class="tag-suggestions" hidden></div>
+        </div>
         <select id="typeFilter" class="type-filter" aria-label="类型过滤">
-          <option value="all">All Types</option>
+          <option value="all">All</option>
           <option value="text">Text</option>
           <option value="image">Image</option>
           <option value="tagged">Tagged</option>
@@ -48,14 +51,13 @@
           </div>
 
           <div class="note-row">
-            <input id="noteInput" class="note-input" type="text" placeholder="输入这条剪贴板的描述" />
+            <input id="noteInput" class="note-input" type="text" placeholder="输入描述或 #tag 后回车" />
           </div>
 
           <div class="tool-row">
             <button id="pinButton" class="tool-button pin-button" type="button">Pin</button>
             <button id="oneLineButton" class="tool-button text-only-control" type="button">变为一行</button>
             <div id="tagList" class="tag-list"></div>
-            <input id="tagInput" class="tag-input" type="text" placeholder="输入 tag 后回车" />
           </div>
         </section>
       </section>
@@ -70,7 +72,10 @@
             <span>Shift Enter</span>
             <span>Pin to desktop</span>
           </div>
-          <button id="copyButton" class="footer-button" type="button">Copy</button>
+          <div class="footer-shortcut-hint">
+            <span>Enter</span>
+            <span>Paste</span>
+          </div>
           <button id="deleteButton" class="footer-button danger" type="button">Delete</button>
           <button id="settingsButton" class="footer-button" type="button">设置</button>
           <button id="aiSettingsButton" class="footer-button" type="button">AI</button>

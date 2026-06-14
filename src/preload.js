@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('goodcopy', {
   listEntries: (options) => ipcRenderer.invoke('entries:list', options),
+  listTags: () => ipcRenderer.invoke('entries:tags'),
   updateEntry: (entry) => ipcRenderer.invoke('entries:update', entry),
   deleteEntry: (id) => ipcRenderer.invoke('entries:delete', id),
   clearUntaggedEntries: () => ipcRenderer.invoke('entries:clear-untagged'),
