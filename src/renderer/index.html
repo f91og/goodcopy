@@ -50,14 +50,14 @@
             </div>
           </div>
 
-          <div class="note-row">
-            <input id="noteInput" class="note-input" type="text" placeholder="输入描述或 #tag 后回车" />
+          <div class="tags-row">
+            <div id="tagList" class="tag-list"></div>
           </div>
 
           <div class="tool-row">
             <button id="pinButton" class="tool-button pin-button" type="button">Pin</button>
             <button id="oneLineButton" class="tool-button text-only-control" type="button">变为一行</button>
-            <div id="tagList" class="tag-list"></div>
+            <input id="noteInput" class="note-input" type="text" placeholder="输入描述或 #tag 后回车" />
           </div>
         </section>
       </section>
@@ -117,11 +117,16 @@
 
           <label class="settings-field">
             <span>窗口大小</span>
-            <select id="windowSizeSelect">
+            <select id="windowSizeSelect" class="compact-select">
               <option value="small">小</option>
               <option value="medium">中</option>
               <option value="large">大</option>
             </select>
+          </label>
+
+          <label class="settings-field">
+            <span>行转换分隔符</span>
+            <button id="lineSeparatorButton" class="shortcut-record separator-record" type="button">Space</button>
           </label>
 
           <label class="settings-field">

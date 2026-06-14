@@ -39,7 +39,8 @@ const DEFAULT_SETTINGS = {
   aiProvider: 'none',
   aiInstruction: '',
   shortcut: 'Control+P',
-  windowSize: 'medium'
+  windowSize: 'medium',
+  lineSeparator: ' '
 };
 const AI_PROVIDERS = new Set(['none', 'codex', 'claude']);
 const AI_COMMAND_TIMEOUT_MS = 60000;
@@ -61,6 +62,12 @@ function normalizeShortcut(shortcut) {
   if (!raw) return fallback;
 
   return raw.replaceAll('CommandOrControl', process.platform === 'darwin' ? 'Command' : 'Control');
+}
+
+function normalizeLineSeparator(separator) {
+  const value = String(separator ?? '').trim();
+  if (!value || value.toLowerCase() === 'space') return ' ';
+  return Array.from(value)[0];
 }
 
 function normalizeText(text) {
@@ -592,6 +599,7 @@ async function readSettings() {
       await writeSettings();
     }
     settings.shortcut = normalizeShortcut(settings.shortcut);
+    settings.lineSeparator = normalizeLineSeparator(settings.lineSeparator);
   } catch (error) {
     if (error.code !== 'ENOENT') {
       console.error('Failed to read settings:', error);
@@ -995,7 +1003,8 @@ ipcMain.handle('settings:update', async (_event, nextSettings) => {
     aiProvider: AI_PROVIDERS.has(nextSettings.aiProvider) ? nextSettings.aiProvider : DEFAULT_SETTINGS.aiProvider,
     aiInstruction: String(nextSettings.aiInstruction || '').trim().slice(0, 1000),
     shortcut: normalizeShortcut(nextSettings.shortcut),
-    windowSize: WINDOW_SIZES[nextSettings.windowSize] ? nextSettings.windowSize : DEFAULT_SETTINGS.windowSize
+    windowSize: WINDOW_SIZES[nextSettings.windowSize] ? nextSettings.windowSize : DEFAULT_SETTINGS.windowSize,
+    lineSeparator: normalizeLineSeparator(nextSettings.lineSeparator)
   };
   delete settings.fetchPullRequestTitles;
   await writeSettings();

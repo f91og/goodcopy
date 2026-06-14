@@ -39,6 +39,7 @@ const aiTestButton = document.getElementById('aiTestButton');
 const aiSettingsButton = document.getElementById('aiSettingsButton');
 const shortcutRecordButton = document.getElementById('shortcutRecordButton');
 const windowSizeSelect = document.getElementById('windowSizeSelect');
+const lineSeparatorButton = document.getElementById('lineSeparatorButton');
 const settingsModal = document.getElementById('settingsModal');
 const settingsTitle = document.getElementById('settingsTitle');
 const generalSettingsBody = document.getElementById('generalSettingsBody');
@@ -162,7 +163,8 @@ function readSettingsForm() {
     aiProvider: aiProviderSelect.value,
     aiInstruction: aiInstructionInput.value,
     shortcut: shortcutRecordButton.dataset.shortcut || 'Control+P',
-    windowSize: windowSizeSelect.value
+    windowSize: windowSizeSelect.value,
+    lineSeparator: lineSeparatorButton.dataset.separator || ' '
   };
 }
 
@@ -178,6 +180,10 @@ function applySettingsToForm(settings) {
   shortcutRecordButton.textContent = shortcutText(shortcutRecordButton.dataset.shortcut);
   shortcutRecordButton.classList.remove('recording');
   windowSizeSelect.value = settings.windowSize || 'medium';
+  const lineSeparator = settings.lineSeparator || ' ';
+  lineSeparatorButton.dataset.separator = lineSeparator;
+  lineSeparatorButton.textContent = lineSeparator === ' ' ? 'Space' : lineSeparator;
+  lineSeparatorButton.classList.remove('recording');
   document.documentElement.classList.remove('size-small', 'size-medium', 'size-large');
   document.documentElement.classList.add(`size-${windowSizeSelect.value}`);
 }
@@ -596,7 +602,11 @@ async function loadEntries({ reset = false } = {}) {
 
 document.getElementById('oneLineButton').addEventListener('click', () => {
   if (selectedEntry()?.contentType === 'Image') return;
-  previewEditor.value = previewEditor.value.replace(/\s*\n+\s*/g, ' ').replace(/[ \t]{2,}/g, ' ').trim();
+  const separator = state.settings?.lineSeparator || ' ';
+  previewEditor.value = previewEditor.value
+    .replace(/\s*\n+\s*/g, separator)
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
   saveCurrentEntry();
 });
 
@@ -701,6 +711,11 @@ shortcutRecordButton.addEventListener('click', () => {
   shortcutRecordButton.focus();
 });
 
+function stopShortcutRecording() {
+  shortcutRecordButton.classList.remove('recording');
+  shortcutRecordButton.textContent = shortcutText(shortcutRecordButton.dataset.shortcut || 'Control+P');
+}
+
 shortcutRecordButton.addEventListener('keydown', (event) => {
   if (!shortcutRecordButton.classList.contains('recording')) return;
 
@@ -708,8 +723,7 @@ shortcutRecordButton.addEventListener('keydown', (event) => {
   event.stopPropagation();
 
   if (event.key === 'Escape') {
-    shortcutRecordButton.classList.remove('recording');
-    shortcutRecordButton.textContent = shortcutText(shortcutRecordButton.dataset.shortcut || 'Control+P');
+    stopShortcutRecording();
     return;
   }
 
@@ -722,6 +736,50 @@ shortcutRecordButton.addEventListener('keydown', (event) => {
   shortcutRecordButton.dataset.shortcut = shortcut;
   shortcutRecordButton.textContent = shortcutText(shortcut);
   shortcutRecordButton.classList.remove('recording');
+});
+
+shortcutRecordButton.addEventListener('blur', () => {
+  if (shortcutRecordButton.classList.contains('recording')) {
+    stopShortcutRecording();
+  }
+});
+
+function stopLineSeparatorRecording() {
+  const separator = lineSeparatorButton.dataset.separator || ' ';
+  lineSeparatorButton.classList.remove('recording');
+  lineSeparatorButton.textContent = separator === ' ' ? 'Space' : separator;
+}
+
+lineSeparatorButton.addEventListener('click', () => {
+  lineSeparatorButton.classList.add('recording');
+  lineSeparatorButton.textContent = '按键...';
+  lineSeparatorButton.focus();
+});
+
+lineSeparatorButton.addEventListener('keydown', (event) => {
+  if (!lineSeparatorButton.classList.contains('recording')) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.key === 'Escape') {
+    stopLineSeparatorRecording();
+    return;
+  }
+  if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
+
+  const separator = event.key === ' ' ? ' ' : Array.from(event.key).length === 1 ? event.key : '';
+  if (!separator) {
+    lineSeparatorButton.textContent = '需单个符号';
+    return;
+  }
+  lineSeparatorButton.dataset.separator = separator;
+  stopLineSeparatorRecording();
+});
+
+lineSeparatorButton.addEventListener('blur', () => {
+  if (lineSeparatorButton.classList.contains('recording')) {
+    stopLineSeparatorRecording();
+  }
 });
 
 accessibilityButton.addEventListener('click', async () => {

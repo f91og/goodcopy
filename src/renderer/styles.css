@@ -100,10 +100,6 @@ body {
   padding-bottom: 8px;
 }
 
-:root.size-medium .note-row {
-  padding-top: 4px;
-}
-
 :root.size-medium .tool-row {
   gap: 8px;
   padding-block: 8px;
@@ -152,10 +148,6 @@ body {
   padding-bottom: 8px;
 }
 
-:root.size-large .note-row {
-  padding-top: 4px;
-}
-
 :root.size-large .tool-row {
   gap: 8px;
   padding-block: 8px;
@@ -202,6 +194,7 @@ textarea {
 .footer-button,
 .note-input,
 .settings-check input,
+.settings-field input,
 .settings-field select,
 .settings-instruction textarea,
 .shortcut-record {
@@ -477,18 +470,23 @@ textarea {
 
 .tool-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
   align-items: center;
   padding: 10px var(--toolbar-padding-x);
 }
 
-.note-row {
-  padding: 5px var(--toolbar-padding-x) 0;
+.tags-row {
+  padding: 6px var(--toolbar-padding-x) 0;
+}
+
+.tags-row:has(.tag-list:empty) {
+  display: none;
 }
 
 .note-input {
-  width: 100%;
+  min-width: 120px;
+  flex: 1;
   height: max(26px, calc(var(--button-height) - 4px));
   border: 1px solid rgba(0, 0, 0, 0.14);
   border-radius: 8px;
@@ -711,16 +709,35 @@ textarea {
   accent-color: #111;
 }
 
+.settings-field input,
 .settings-field select {
+  field-sizing: content;
   width: max-content;
-  min-width: 120px;
-  max-width: var(--settings-control-width);
+  min-width: 84px;
+  max-width: 140px;
   height: var(--settings-control-height);
   border: 1px solid rgba(0, 0, 0, 0.18);
   border-radius: 8px;
   padding: 0 10px;
   background: rgba(255, 255, 255, 0.28);
   color: #111;
+}
+
+.settings-field input {
+  width: 96px;
+  outline: none;
+}
+
+.settings-field .compact-select {
+  min-width: 58px;
+  width: 58px;
+  padding-right: 24px;
+}
+
+.settings-field .separator-record {
+  min-width: 58px;
+  width: 58px;
+  text-align: center;
 }
 
 .settings-note {
@@ -731,8 +748,8 @@ textarea {
 
 .shortcut-record {
   width: max-content;
-  min-width: 120px;
-  max-width: var(--settings-control-width);
+  min-width: 0;
+  max-width: none;
   min-height: var(--settings-control-height);
   border: 1px solid rgba(0, 0, 0, 0.18);
   border-radius: 8px;
