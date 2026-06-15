@@ -44,7 +44,13 @@
 
         <section class="detail-pane">
           <div class="preview-stage">
-            <textarea id="previewEditor" class="preview-editor" spellcheck="false" placeholder="复制文本或图片后会出现在这里"></textarea>
+            <textarea
+              id="previewEditor"
+              class="preview-editor"
+              wrap="off"
+              spellcheck="false"
+              placeholder="复制文本或图片后会出现在这里"
+            ></textarea>
             <div id="imagePreview" class="image-preview" hidden>
               <img id="previewImage" alt="剪贴板图片预览" />
             </div>
@@ -57,7 +63,10 @@
           <div class="tool-row">
             <button id="pinButton" class="tool-button pin-button" type="button">Pin</button>
             <button id="oneLineButton" class="tool-button text-only-control" type="button">变为一行</button>
-            <input id="noteInput" class="note-input" type="text" placeholder="输入描述或 #tag 后回车" />
+            <div class="metadata-field">
+              <div id="metadataTagSuggestions" class="tag-suggestions metadata-tag-suggestions" hidden></div>
+              <input id="noteInput" class="note-input" type="text" placeholder="输入描述，或以 # 开头添加 tag" />
+            </div>
           </div>
         </section>
       </section>
@@ -98,6 +107,10 @@
           <label class="settings-check">
             <input id="trimLeadingSpacesToggle" type="checkbox" />
             <span>去除首行前空格</span>
+          </label>
+          <label class="settings-check">
+            <input id="darkModeToggle" type="checkbox" />
+            <span>暗黑模式</span>
           </label>
           <label class="settings-check">
             <input id="fetchGithubPullRequestTitlesToggle" type="checkbox" />

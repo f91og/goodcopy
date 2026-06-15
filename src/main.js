@@ -40,7 +40,9 @@ const DEFAULT_SETTINGS = {
   aiInstruction: '',
   shortcut: 'Control+P',
   windowSize: 'medium',
-  lineSeparator: ' '
+  lineSeparator: ' ',
+  darkMode: false,
+  githubStatus: null
 };
 const AI_PROVIDERS = new Set(['none', 'codex', 'claude']);
 const AI_COMMAND_TIMEOUT_MS = 60000;
@@ -159,7 +161,7 @@ async function findExecutable(command) {
   return result.ok && result.stdout ? result.stdout.split('\n').at(-1).trim() : '';
 }
 
-async function getGithubStatus() {
+async function checkGithubStatus() {
   const executable = await findExecutable('gh');
   if (!executable) {
     return { installed: false, loggedIn: false, message: '未找到 GitHub CLI（gh）' };
@@ -194,6 +196,16 @@ async function getGithubStatus() {
     loggedIn: false,
     message: result.stderr || 'GitHub 尚未登录'
   };
+}
+
+async function refreshGithubStatus() {
+  const status = {
+    ...(await checkGithubStatus()),
+    checkedAt: new Date().toISOString()
+  };
+  settings.githubStatus = status;
+  await writeSettings();
+  return status;
 }
 
 async function openTerminalCommand(commandParts, successMessage) {
@@ -972,7 +984,7 @@ ipcMain.handle('entries:tags', () => listEntryTags());
 
 ipcMain.handle('settings:get', () => settings);
 
-ipcMain.handle('github:status', () => getGithubStatus());
+ipcMain.handle('github:status', () => refreshGithubStatus());
 
 ipcMain.handle('github:login', () => openGithubLogin());
 
@@ -1004,7 +1016,8 @@ ipcMain.handle('settings:update', async (_event, nextSettings) => {
     aiInstruction: String(nextSettings.aiInstruction || '').trim().slice(0, 1000),
     shortcut: normalizeShortcut(nextSettings.shortcut),
     windowSize: WINDOW_SIZES[nextSettings.windowSize] ? nextSettings.windowSize : DEFAULT_SETTINGS.windowSize,
-    lineSeparator: normalizeLineSeparator(nextSettings.lineSeparator)
+    lineSeparator: normalizeLineSeparator(nextSettings.lineSeparator),
+    darkMode: Boolean(nextSettings.darkMode)
   };
   delete settings.fetchPullRequestTitles;
   await writeSettings();

@@ -236,11 +236,12 @@ textarea {
   position: absolute;
   z-index: 30;
   top: calc(100% + 10px);
-  left: -8px;
+  left: 0;
+  right: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  width: min(520px, calc(100vw - 40px));
+  width: auto;
   max-height: 180px;
   overflow: auto;
   padding: 10px;
@@ -441,12 +442,14 @@ textarea {
   height: 100%;
   width: 100%;
   resize: none;
+  overflow: auto;
+  white-space: pre;
   border: 0;
   outline: none;
   padding: var(--toolbar-padding-x);
   background: transparent;
   color: #111;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: "SF Mono", "SFMono-Regular", "PingFang SC", "Hiragino Sans GB", Menlo, Consolas, monospace;
   font-size: var(--preview-size);
   line-height: 1.75;
 }
@@ -485,8 +488,8 @@ textarea {
 }
 
 .note-input {
+  width: 100%;
   min-width: 120px;
-  flex: 1;
   height: max(26px, calc(var(--button-height) - 4px));
   border: 1px solid rgba(0, 0, 0, 0.14);
   border-radius: 8px;
@@ -495,6 +498,18 @@ textarea {
   background: rgba(255, 255, 255, 0.2);
   color: #111;
   font-size: var(--footer-button-size);
+}
+
+.metadata-field {
+  position: relative;
+  min-width: 120px;
+  flex: 1;
+}
+
+.metadata-tag-suggestions {
+  top: auto;
+  bottom: calc(100% + 8px);
+  max-height: 150px;
 }
 
 .note-input::placeholder {
@@ -796,4 +811,145 @@ textarea {
   .content {
     grid-template-columns: minmax(220px, var(--entry-pane-width)) 8px minmax(280px, 1fr);
   }
+}
+
+:root.dark-mode {
+  color-scheme: dark;
+  background: #171717;
+  color: #ededed;
+}
+
+:root.dark-mode .app-shell {
+  background: rgba(28, 28, 28, 0.96);
+}
+
+:root.dark-mode .topbar,
+:root.dark-mode .preview-stage,
+:root.dark-mode .footerbar,
+:root.dark-mode .settings-header {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+:root.dark-mode .search-input,
+:root.dark-mode .preview-editor,
+:root.dark-mode .note-input,
+:root.dark-mode .type-filter,
+:root.dark-mode .type-filter option {
+  color: #ededed;
+}
+
+:root.dark-mode .search-input::placeholder,
+:root.dark-mode .note-input::placeholder {
+  color: #929292;
+}
+
+:root.dark-mode .entry-item.selected {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+:root.dark-mode .entry-item {
+  color: #ededed;
+}
+
+:root.dark-mode .entry-icon {
+  border-color: #cfcfcf;
+}
+
+:root.dark-mode .entry-icon::after {
+  border-color: #cfcfcf;
+  background: #1c1c1c;
+}
+
+:root.dark-mode .icon-button {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ededed;
+}
+
+:root.dark-mode .pane-resize-handle::after {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+:root.dark-mode .pane-resize-handle:hover::after,
+:root.dark-mode .pane-resize-handle:focus-visible::after,
+:root.dark-mode .content.resizing .pane-resize-handle::after {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+:root.dark-mode .entry-thumb {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root.dark-mode .date-label,
+:root.dark-mode .entry-note,
+:root.dark-mode .entry-tags,
+:root.dark-mode .entry-load-status,
+:root.dark-mode .footer-meta > span:first-child,
+:root.dark-mode .storage-usage,
+:root.dark-mode .footer-shortcut-hint,
+:root.dark-mode .settings-note,
+:root.dark-mode .empty-state {
+  color: #a9a9a9;
+}
+
+:root.dark-mode .type-filter,
+:root.dark-mode .note-input,
+:root.dark-mode .tool-button,
+:root.dark-mode .footer-button,
+:root.dark-mode .settings-field input,
+:root.dark-mode .settings-field select,
+:root.dark-mode .settings-instruction textarea,
+:root.dark-mode .shortcut-record {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.07);
+  color: #ededed;
+}
+
+:root.dark-mode .footerbar {
+  background: rgba(22, 22, 22, 0.96);
+}
+
+:root.dark-mode .modal-backdrop {
+  background: rgba(0, 0, 0, 0.48);
+}
+
+:root.dark-mode .settings-modal,
+:root.dark-mode .tag-suggestions {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(35, 35, 35, 0.98);
+  color: #ededed;
+}
+
+:root.dark-mode .settings-check,
+:root.dark-mode .settings-field,
+:root.dark-mode .settings-instruction {
+  color: #ededed;
+}
+
+:root.dark-mode .settings-check input {
+  accent-color: #d8d8d8;
+}
+
+:root.dark-mode .tag-chip,
+:root.dark-mode .tag-suggestions button {
+  background: rgba(83, 159, 203, 0.22);
+  color: #b8dff5;
+}
+
+:root.dark-mode .primary-button,
+:root.dark-mode .footer-button.strong,
+:root.dark-mode .pin-button.active,
+:root.dark-mode .shortcut-record.recording {
+  border-color: #ededed;
+  background: #ededed;
+  color: #151515;
+}
+
+:root.dark-mode .footer-button.danger,
+:root.dark-mode .danger-action {
+  color: #ff8585;
+}
+
+:root.dark-mode * {
+  scrollbar-color: #555 #202020;
 }

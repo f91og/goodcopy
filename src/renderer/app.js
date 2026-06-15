@@ -25,9 +25,11 @@ const paneResizeHandle = document.getElementById('paneResizeHandle');
 const detailPane = document.querySelector('.detail-pane');
 const tagList = document.getElementById('tagList');
 const noteInput = document.getElementById('noteInput');
+const metadataTagSuggestions = document.getElementById('metadataTagSuggestions');
 const pinButton = document.getElementById('pinButton');
 const removeBlankLinesToggle = document.getElementById('removeBlankLinesToggle');
 const trimLeadingSpacesToggle = document.getElementById('trimLeadingSpacesToggle');
+const darkModeToggle = document.getElementById('darkModeToggle');
 const fetchGithubPullRequestTitlesToggle = document.getElementById('fetchGithubPullRequestTitlesToggle');
 const githubLoginButton = document.getElementById('githubLoginButton');
 const githubStatus = document.getElementById('githubStatus');
@@ -164,7 +166,8 @@ function readSettingsForm() {
     aiInstruction: aiInstructionInput.value,
     shortcut: shortcutRecordButton.dataset.shortcut || 'Control+P',
     windowSize: windowSizeSelect.value,
-    lineSeparator: lineSeparatorButton.dataset.separator || ' '
+    lineSeparator: lineSeparatorButton.dataset.separator || ' ',
+    darkMode: darkModeToggle.checked
   };
 }
 
@@ -172,6 +175,7 @@ function applySettingsToForm(settings) {
   state.settings = { ...settings };
   removeBlankLinesToggle.checked = Boolean(settings.removeBlankLines);
   trimLeadingSpacesToggle.checked = Boolean(settings.trimLeadingSpaces);
+  darkModeToggle.checked = Boolean(settings.darkMode);
   fetchGithubPullRequestTitlesToggle.checked = Boolean(settings.fetchGithubPullRequestTitles);
   aiProviderSelect.value = settings.aiProvider || 'none';
   aiInstructionInput.value = settings.aiInstruction || '';
@@ -186,6 +190,8 @@ function applySettingsToForm(settings) {
   lineSeparatorButton.classList.remove('recording');
   document.documentElement.classList.remove('size-small', 'size-medium', 'size-large');
   document.documentElement.classList.add(`size-${windowSizeSelect.value}`);
+  document.documentElement.classList.toggle('dark-mode', darkModeToggle.checked);
+  renderCachedGithubStatus(settings.githubStatus);
 }
 
 async function saveSettings() {
@@ -232,10 +238,26 @@ async function refreshGithubStatus() {
   githubStatus.textContent = '正在检查 GitHub CLI 登录状态...';
 
   const status = await window.goodcopy.getGithubStatus();
-  githubStatus.textContent = `${status.message}。GoodCopy 不保存 GitHub token。`;
-  githubLoginButton.textContent = status.loggedIn ? '已登录 · 重新检查' : status.installed ? '打开终端登录' : '未安装';
-  githubLoginButton.disabled = !status.installed;
+  state.settings.githubStatus = status;
+  renderCachedGithubStatus(status);
   return status;
+}
+
+function renderCachedGithubStatus(status) {
+  if (!status) {
+    githubLoginButton.textContent = '检查状态';
+    githubLoginButton.disabled = false;
+    githubStatus.textContent = '尚未检查 GitHub CLI 登录状态。GoodCopy 不保存 GitHub token。';
+    return;
+  }
+
+  githubStatus.textContent = `${status.message}。GoodCopy 不保存 GitHub token。`;
+  githubLoginButton.textContent = status.loggedIn
+    ? '已登录 · 重新检查'
+    : status.installed
+      ? '打开终端登录'
+      : '未安装 · 重新检查';
+  githubLoginButton.disabled = false;
 }
 
 function applyTextTransforms(text) {
@@ -332,13 +354,58 @@ function renderTagSuggestions() {
   tagSuggestions.hidden = false;
 }
 
-async function refreshTagSuggestions() {
-  if (typeFilter.value !== 'tagged') {
-    tagSuggestions.hidden = true;
+function isTagInputMode() {
+  return noteInput.value.startsWith('#');
+}
+
+function renderMetadataTagSuggestions() {
+  metadataTagSuggestions.innerHTML = '';
+  if (!isTagInputMode()) {
+    metadataTagSuggestions.hidden = true;
     return;
   }
+
+  const query = noteInput.value.slice(1).trim().toLowerCase();
+  const currentTagKeys = new Set(state.draftTags.map((tag) => tag.toLowerCase()));
+  const matchingTags = state.availableTags.filter(
+    (tag) => !currentTagKeys.has(tag.toLowerCase()) && tag.toLowerCase().includes(query)
+  );
+  if (!matchingTags.length) {
+    metadataTagSuggestions.hidden = true;
+    return;
+  }
+
+  for (const tag of matchingTags) {
+    const suggestion = document.createElement('button');
+    suggestion.type = 'button';
+    suggestion.textContent = `#${tag}`;
+    suggestion.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+    });
+    suggestion.addEventListener('click', () => {
+      addMetadataTag(tag);
+    });
+    metadataTagSuggestions.append(suggestion);
+  }
+  metadataTagSuggestions.hidden = false;
+}
+
+function addMetadataTag(tag) {
+  if (!tag || state.draftTags.some((item) => item.toLowerCase() === tag.toLowerCase())) return;
+  state.draftTags.push(tag);
+  if (!state.availableTags.some((item) => item.toLowerCase() === tag.toLowerCase())) {
+    state.availableTags.push(tag);
+  }
+  noteInput.value = state.draftNote;
+  metadataTagSuggestions.hidden = true;
+  renderTags();
+  saveCurrentEntry();
+}
+
+async function refreshTagSuggestions() {
   state.availableTags = await window.goodcopy.listTags();
   renderTagSuggestions();
+  renderMetadataTagSuggestions();
 }
 
 function setDraftFromEntry(entry) {
@@ -349,6 +416,7 @@ function setDraftFromEntry(entry) {
   state.draftNote = entry?.note || '';
   previewEditor.value = draftText;
   noteInput.value = state.draftNote;
+  metadataTagSuggestions.hidden = true;
   noteInput.disabled = !entry;
   previewEditor.hidden = isImage;
   imagePreview.hidden = !isImage;
@@ -529,35 +597,16 @@ async function saveCurrentEntry() {
   return updated;
 }
 
-function parseMetadataInput(value) {
-  const tags = [];
-  const descriptionParts = [];
-
-  for (const part of value.trim().split(/\s+/).filter(Boolean)) {
-    if (part.startsWith('#') && part.length > 1) {
-      const tag = part.slice(1);
-      if (!tags.includes(tag)) {
-        tags.push(tag);
-      }
-    } else {
-      descriptionParts.push(part);
-    }
-  }
-
-  return {
-    note: descriptionParts.join(' '),
-    tags
-  };
-}
-
 function commitMetadataInput() {
-  const { note, tags } = parseMetadataInput(noteInput.value);
-  if (note || !tags.length) {
-    state.draftNote = note;
+  const value = noteInput.value.trim();
+  if (value.startsWith('#')) {
+    addMetadataTag(value.slice(1).trim().split(/\s+/)[0]);
+    noteInput.value = state.draftNote;
+    metadataTagSuggestions.hidden = true;
+    return null;
   }
-  state.draftTags = [...new Set([...state.draftTags, ...tags])];
-  noteInput.value = state.draftNote;
-  renderTags();
+
+  state.draftNote = value;
   return saveCurrentEntry();
 }
 
@@ -643,7 +692,7 @@ function openSettings(view = 'general') {
     refreshAiStatus();
   } else {
     refreshAccessibilityStatus();
-    refreshGithubStatus();
+    renderCachedGithubStatus(state.settings?.githubStatus);
   }
 }
 
@@ -656,11 +705,11 @@ aiSettingsButton.addEventListener('click', () => {
 });
 
 githubLoginButton.addEventListener('click', async () => {
-  const status = await window.goodcopy.getGithubStatus();
+  const status = await refreshGithubStatus();
   if (status.loggedIn) {
-    await refreshGithubStatus();
     return;
   }
+  if (!status.installed) return;
 
   const result = await window.goodcopy.loginGithub();
   githubStatus.textContent = result.message;
@@ -859,10 +908,16 @@ noteInput.addEventListener('compositionend', () => {
 });
 
 noteInput.addEventListener('input', () => {
-  const { note, tags } = parseMetadataInput(noteInput.value);
-  if (note || !tags.length) {
-    state.draftNote = note;
+  if (isTagInputMode()) {
+    renderMetadataTagSuggestions();
+  } else {
+    metadataTagSuggestions.hidden = true;
+    state.draftNote = noteInput.value.trim();
   }
+});
+
+noteInput.addEventListener('focus', () => {
+  renderMetadataTagSuggestions();
 });
 
 noteInput.addEventListener('keydown', (event) => {
@@ -873,6 +928,7 @@ noteInput.addEventListener('keydown', (event) => {
 });
 
 noteInput.addEventListener('blur', () => {
+  metadataTagSuggestions.hidden = true;
   commitMetadataInput();
 });
 
