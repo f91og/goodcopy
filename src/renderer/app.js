@@ -237,10 +237,19 @@ async function refreshGithubStatus() {
   githubLoginButton.textContent = '检查中...';
   githubStatus.textContent = '正在检查 GitHub CLI 登录状态...';
 
-  const status = await window.goodcopy.getGithubStatus();
-  state.settings.githubStatus = status;
-  renderCachedGithubStatus(status);
-  return status;
+  try {
+    const status = await window.goodcopy.getGithubStatus();
+    state.settings.githubStatus = status;
+    renderCachedGithubStatus(status);
+    return status;
+  } catch (error) {
+    console.error('Failed to refresh GitHub status:', error);
+    renderCachedGithubStatus(state.settings?.githubStatus);
+    githubStatus.textContent = 'GitHub 登录状态检查失败，请重试。';
+    return null;
+  } finally {
+    githubLoginButton.disabled = false;
+  }
 }
 
 function renderCachedGithubStatus(status) {
@@ -276,6 +285,11 @@ function applyTextTransforms(text) {
 
 function selectedEntry() {
   return state.entries.find((entry) => entry.id === state.selectedId) || null;
+}
+
+function isEditableKeyboardTarget(target) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
 }
 
 function keyToAcceleratorKey(event) {
@@ -589,9 +603,11 @@ async function saveCurrentEntry() {
   });
   if (updated) {
     state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
-    state.draftTags = Array.isArray(updated.tags) ? [...updated.tags] : [];
-    state.draftNote = updated.note || '';
-    noteInput.value = state.draftNote;
+    if (state.selectedId === updated.id) {
+      state.draftTags = Array.isArray(updated.tags) ? [...updated.tags] : [];
+      state.draftNote = updated.note || '';
+      noteInput.value = state.draftNote;
+    }
     renderEntries();
   }
   return updated;
@@ -610,11 +626,12 @@ function commitMetadataInput() {
   return saveCurrentEntry();
 }
 
-async function loadEntries({ reset = false } = {}) {
+async function loadEntries({ reset = false, preserveSelection = false } = {}) {
   if (state.isLoadingEntries && !reset) return;
 
   const requestId = reset ? ++entryLoadRequestId : entryLoadRequestId;
   const offset = reset ? 0 : state.entries.length;
+  const selectedIdBeforeReset = preserveSelection ? state.selectedId : null;
   state.isLoadingEntries = true;
   if (reset) {
     state.entries = [];
@@ -637,7 +654,9 @@ async function loadEntries({ reset = false } = {}) {
     state.totalEntries = result.total;
     state.hasMoreEntries = result.hasMore;
     if (reset) {
-      state.selectedId = null;
+      state.selectedId = result.entries.some((entry) => entry.id === selectedIdBeforeReset)
+        ? selectedIdBeforeReset
+        : null;
       entryPane.scrollTop = 0;
     }
     renderEntries();
@@ -706,6 +725,7 @@ aiSettingsButton.addEventListener('click', () => {
 
 githubLoginButton.addEventListener('click', async () => {
   const status = await refreshGithubStatus();
+  if (!status) return;
   if (status.loggedIn) {
     return;
   }
@@ -984,13 +1004,13 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
-  if (event.key === 'ArrowDown') {
+  if (event.key === 'ArrowDown' && !isEditableKeyboardTarget(event.target)) {
     event.preventDefault();
     selectEntryByOffset(1);
     return;
   }
 
-  if (event.key === 'ArrowUp') {
+  if (event.key === 'ArrowUp' && !isEditableKeyboardTarget(event.target)) {
     event.preventDefault();
     selectEntryByOffset(-1);
     return;
@@ -1015,7 +1035,7 @@ window.goodcopy.onEntriesChanged((change) => {
   }
   if (change?.type === 'updated' && change.entry) {
     if (searchInput.value.trim() || typeFilter.value !== 'all') {
-      loadEntries({ reset: true });
+      loadEntries({ reset: true, preserveSelection: true });
       refreshStorageUsage();
       return;
     }
