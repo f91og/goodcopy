@@ -81,6 +81,15 @@ function titleFromText(text) {
   return compact.length > 42 ? `${compact.slice(0, 42)}...` : compact || 'Untitled';
 }
 
+function clipboardTextKey(text) {
+  return normalizeText(text).trimEnd();
+}
+
+function entryMatchesClipboardText(entry, text) {
+  const key = clipboardTextKey(text);
+  return clipboardTextKey(entry.clipboardText || '') === key || clipboardTextKey(entry.text || '') === key;
+}
+
 function runCommand(command, args, options = {}) {
   return new Promise((resolve) => {
     const child = execFile(
@@ -704,10 +713,10 @@ async function getStorageUsage() {
 }
 
 function addClipboardText(text, source = 'Clipboard') {
-  const normalized = normalizeText(text).trimEnd();
+  const normalized = clipboardTextKey(text);
   if (!normalized.trim()) return null;
 
-  const existingIndex = entries.findIndex((entry) => entry.text === normalized);
+  const existingIndex = entries.findIndex((entry) => entryMatchesClipboardText(entry, normalized));
   if (existingIndex === 0) {
     const migratedEntry = migrateLegacyAutoNote(entries[0]);
     if (migratedEntry !== entries[0]) {
@@ -720,11 +729,13 @@ function addClipboardText(text, source = 'Clipboard') {
   }
 
   const existing = existingIndex > -1 ? migrateLegacyAutoNote(entries.splice(existingIndex, 1)[0]) : null;
+  const displayText = existing?.text || normalized;
   const entry = {
     id: existing?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: 'text',
-    text: normalized,
-    title: titleFromText(normalized),
+    text: displayText,
+    clipboardText: existing?.clipboardText || normalized,
+    title: existing?.title || titleFromText(displayText),
     note: existing?.note || '',
     noteSource: existing?.noteSource || '',
     tags: existing?.tags || [],

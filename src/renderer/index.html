@@ -65,8 +65,9 @@
             <button id="oneLineButton" class="tool-button text-only-control" type="button">变为一行</button>
             <div class="metadata-field">
               <div id="metadataTagSuggestions" class="tag-suggestions metadata-tag-suggestions" hidden></div>
-              <input id="noteInput" class="note-input" type="text" placeholder="输入描述，或以 # 开头添加 tag" />
+              <input id="tagInput" class="tag-input" type="text" placeholder="添加 tag" />
             </div>
+            <input id="noteInput" class="note-input" type="text" placeholder="输入描述" />
           </div>
         </section>
       </section>
@@ -91,6 +92,12 @@
         </div>
       </footer>
     </main>
+
+    <div id="entryContextMenu" class="entry-context-menu" role="menu" hidden>
+      <button id="contextPinButton" type="button" role="menuitem">Pin</button>
+      <button id="contextTagButton" type="button" role="menuitem">显示相同 tag</button>
+      <button id="contextDeleteButton" class="danger-action" type="button" role="menuitem">删除</button>
+    </div>
 
     <div id="settingsModal" class="modal-backdrop" hidden>
       <section class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">

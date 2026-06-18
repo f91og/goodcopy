@@ -425,6 +425,51 @@ textarea {
   font-weight: 560;
 }
 
+.entry-context-menu {
+  position: fixed;
+  z-index: 120;
+  min-width: 168px;
+  padding: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 8px;
+  background: rgba(246, 246, 244, 0.98);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+  -webkit-app-region: no-drag;
+}
+
+.entry-context-menu button {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: transparent;
+  color: #111;
+  font-size: var(--footer-button-size);
+  text-align: left;
+  cursor: pointer;
+}
+
+.entry-context-menu button:hover,
+.entry-context-menu button:focus-visible {
+  background: rgba(0, 0, 0, 0.08);
+  outline: none;
+}
+
+.entry-context-menu button:disabled {
+  color: #8a8a8a;
+  cursor: default;
+}
+
+.entry-context-menu button:disabled:hover {
+  background: transparent;
+}
+
+.entry-context-menu .danger-action {
+  color: #9f1c1c;
+}
+
 .detail-pane {
   min-width: 0;
   min-height: 0;
@@ -487,9 +532,9 @@ textarea {
   display: none;
 }
 
+.tag-input,
 .note-input {
   width: 100%;
-  min-width: 120px;
   height: max(26px, calc(var(--button-height) - 4px));
   border: 1px solid rgba(0, 0, 0, 0.14);
   border-radius: 8px;
@@ -500,18 +545,30 @@ textarea {
   font-size: var(--footer-button-size);
 }
 
+.tag-input {
+  min-width: 0;
+}
+
 .metadata-field {
   position: relative;
-  min-width: 120px;
+  flex: 0 0 clamp(88px, 10vw, 120px);
+  min-width: 88px;
+}
+
+.note-input {
   flex: 1;
+  min-width: 120px;
 }
 
 .metadata-tag-suggestions {
   top: auto;
+  right: auto;
   bottom: calc(100% + 8px);
+  width: clamp(180px, 24vw, 300px);
   max-height: 150px;
 }
 
+.tag-input::placeholder,
 .note-input::placeholder {
   color: #858585;
   font-weight: 600;
@@ -832,6 +889,7 @@ textarea {
 
 :root.dark-mode .search-input,
 :root.dark-mode .preview-editor,
+:root.dark-mode .tag-input,
 :root.dark-mode .note-input,
 :root.dark-mode .type-filter,
 :root.dark-mode .type-filter option {
@@ -839,6 +897,7 @@ textarea {
 }
 
 :root.dark-mode .search-input::placeholder,
+:root.dark-mode .tag-input::placeholder,
 :root.dark-mode .note-input::placeholder {
   color: #929292;
 }
@@ -893,6 +952,7 @@ textarea {
 }
 
 :root.dark-mode .type-filter,
+:root.dark-mode .tag-input,
 :root.dark-mode .note-input,
 :root.dark-mode .tool-button,
 :root.dark-mode .footer-button,
@@ -914,10 +974,32 @@ textarea {
 }
 
 :root.dark-mode .settings-modal,
-:root.dark-mode .tag-suggestions {
+:root.dark-mode .tag-suggestions,
+:root.dark-mode .entry-context-menu {
   border-color: rgba(255, 255, 255, 0.16);
   background: rgba(35, 35, 35, 0.98);
   color: #ededed;
+}
+
+:root.dark-mode .entry-context-menu button {
+  color: #ededed;
+}
+
+:root.dark-mode .entry-context-menu button:hover,
+:root.dark-mode .entry-context-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:root.dark-mode .entry-context-menu button:disabled {
+  color: #777;
+}
+
+:root.dark-mode .entry-context-menu button:disabled:hover {
+  background: transparent;
+}
+
+:root.dark-mode .entry-context-menu .danger-action {
+  color: #ff8585;
 }
 
 :root.dark-mode .settings-check,

@@ -17,6 +17,10 @@ const entryLoadStatus = document.getElementById('entryLoadStatus');
 const searchInput = document.getElementById('searchInput');
 const tagSuggestions = document.getElementById('tagSuggestions');
 const typeFilter = document.getElementById('typeFilter');
+const entryContextMenu = document.getElementById('entryContextMenu');
+const contextPinButton = document.getElementById('contextPinButton');
+const contextTagButton = document.getElementById('contextTagButton');
+const contextDeleteButton = document.getElementById('contextDeleteButton');
 const previewEditor = document.getElementById('previewEditor');
 const imagePreview = document.getElementById('imagePreview');
 const previewImage = document.getElementById('previewImage');
@@ -24,6 +28,7 @@ const contentPane = document.querySelector('.content');
 const paneResizeHandle = document.getElementById('paneResizeHandle');
 const detailPane = document.querySelector('.detail-pane');
 const tagList = document.getElementById('tagList');
+const tagInput = document.getElementById('tagInput');
 const noteInput = document.getElementById('noteInput');
 const metadataTagSuggestions = document.getElementById('metadataTagSuggestions');
 const pinButton = document.getElementById('pinButton');
@@ -53,8 +58,15 @@ const storageUsage = document.getElementById('storageUsage');
 const clearUntaggedButton = document.getElementById('clearUntaggedButton');
 const clearUntaggedStatus = document.getElementById('clearUntaggedStatus');
 let isNoteInputComposing = false;
+let isTagInputComposing = false;
+let isTextCompositionActive = false;
 let entryLoadRequestId = 0;
 let searchTimer;
+let previewSaveTimer;
+let previewDirty = false;
+let contextMenuEntryId = null;
+let suppressTagSuggestions = false;
+const PREVIEW_SAVE_DELAY_MS = 500;
 const PANE_WIDTH_STORAGE_KEY = 'goodcopy.entryPaneWidth';
 const DEFAULT_ENTRY_PANE_RATIO = 0.38;
 const MIN_ENTRY_PANE_WIDTH = 220;
@@ -287,9 +299,17 @@ function selectedEntry() {
   return state.entries.find((entry) => entry.id === state.selectedId) || null;
 }
 
+function entryById(id) {
+  return state.entries.find((entry) => entry.id === id) || null;
+}
+
 function isEditableKeyboardTarget(target) {
   if (!(target instanceof HTMLElement)) return false;
   return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
+}
+
+function isInputMethodComposing(event) {
+  return event.isComposing || event.keyCode === 229 || isTextCompositionActive;
 }
 
 function keyToAcceleratorKey(event) {
@@ -339,7 +359,7 @@ function filteredEntries() {
 
 function renderTagSuggestions() {
   tagSuggestions.innerHTML = '';
-  if (typeFilter.value !== 'tagged') {
+  if (suppressTagSuggestions || typeFilter.value !== 'tagged') {
     tagSuggestions.hidden = true;
     return;
   }
@@ -368,18 +388,14 @@ function renderTagSuggestions() {
   tagSuggestions.hidden = false;
 }
 
-function isTagInputMode() {
-  return noteInput.value.startsWith('#');
-}
-
 function renderMetadataTagSuggestions() {
   metadataTagSuggestions.innerHTML = '';
-  if (!isTagInputMode()) {
+  if (document.activeElement !== tagInput) {
     metadataTagSuggestions.hidden = true;
     return;
   }
 
-  const query = noteInput.value.slice(1).trim().toLowerCase();
+  const query = tagInput.value.trim().replace(/^#/, '').toLowerCase();
   const currentTagKeys = new Set(state.draftTags.map((tag) => tag.toLowerCase()));
   const matchingTags = state.availableTags.filter(
     (tag) => !currentTagKeys.has(tag.toLowerCase()) && tag.toLowerCase().includes(query)
@@ -410,7 +426,7 @@ function addMetadataTag(tag) {
   if (!state.availableTags.some((item) => item.toLowerCase() === tag.toLowerCase())) {
     state.availableTags.push(tag);
   }
-  noteInput.value = state.draftNote;
+  tagInput.value = '';
   metadataTagSuggestions.hidden = true;
   renderTags();
   saveCurrentEntry();
@@ -423,14 +439,19 @@ async function refreshTagSuggestions() {
 }
 
 function setDraftFromEntry(entry) {
+  clearTimeout(previewSaveTimer);
+  previewSaveTimer = null;
+  previewDirty = false;
   state.selectedId = entry?.id || null;
   const isImage = entry?.contentType === 'Image';
   const draftText = isImage ? '' : applyTextTransforms(entry?.text || '');
   state.draftTags = Array.isArray(entry?.tags) ? [...entry.tags] : [];
   state.draftNote = entry?.note || '';
   previewEditor.value = draftText;
+  tagInput.value = '';
   noteInput.value = state.draftNote;
   metadataTagSuggestions.hidden = true;
+  tagInput.disabled = !entry;
   noteInput.disabled = !entry;
   previewEditor.hidden = isImage;
   imagePreview.hidden = !isImage;
@@ -441,7 +462,15 @@ function setDraftFromEntry(entry) {
   renderTags();
 }
 
-function selectEntryByOffset(offset) {
+async function selectEntry(entry) {
+  if (previewDirty) {
+    await flushCurrentEntry();
+  }
+  setDraftFromEntry(entry);
+  renderEntries();
+}
+
+async function selectEntryByOffset(offset) {
   const entries = filteredEntries();
   if (!entries.length) return;
 
@@ -451,8 +480,7 @@ function selectEntryByOffset(offset) {
       ? 0
       : Math.max(0, Math.min(entries.length - 1, currentIndex + offset));
 
-  setDraftFromEntry(entries[nextIndex]);
-  renderEntries();
+  await selectEntry(entries[nextIndex]);
   document.querySelector(`[data-id="${state.selectedId}"]`)?.scrollIntoView({ block: 'nearest' });
 }
 
@@ -473,6 +501,84 @@ async function pasteSelectedEntry() {
     tags: state.draftTags,
     pinned: Boolean(entry.pinned)
   });
+}
+
+function hideEntryContextMenu() {
+  contextMenuEntryId = null;
+  entryContextMenu.hidden = true;
+}
+
+function positionEntryContextMenu(x, y) {
+  entryContextMenu.hidden = false;
+
+  const { width, height } = entryContextMenu.getBoundingClientRect();
+  const left = Math.min(x, window.innerWidth - width - 8);
+  const top = Math.min(y, window.innerHeight - height - 8);
+  entryContextMenu.style.left = `${Math.max(8, left)}px`;
+  entryContextMenu.style.top = `${Math.max(8, top)}px`;
+}
+
+async function showEntryContextMenu(event, entry) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  await flushCurrentEntry();
+  setDraftFromEntry(entry);
+  renderEntries();
+
+  const tags = Array.isArray(entry.tags) ? entry.tags : [];
+  contextMenuEntryId = entry.id;
+  contextPinButton.textContent = entry.pinned ? '取消置顶' : '置顶';
+  contextTagButton.textContent = tags[0] ? `显示相同 tag: #${tags[0]}` : '显示相同 tag';
+  contextTagButton.disabled = !tags.length;
+  positionEntryContextMenu(event.clientX, event.clientY);
+}
+
+async function deleteEntry(entry = selectedEntry()) {
+  if (!entry) return;
+  hideEntryContextMenu();
+  await window.goodcopy.deleteEntry(entry.id);
+  if (state.selectedId === entry.id) {
+    state.selectedId = null;
+  }
+  await loadEntries({ reset: true });
+}
+
+async function toggleEntryPinned(entry = selectedEntry()) {
+  if (!entry) return;
+
+  hideEntryContextMenu();
+  const tags = Array.isArray(entry.tags) ? entry.tags : [];
+  const updated = await window.goodcopy.updateEntry({
+    id: entry.id,
+    text:
+      entry.contentType === 'Text'
+        ? entry.id === state.selectedId
+          ? previewEditor.value
+          : entry.text || ''
+        : entry.text || '',
+    note: entry.id === state.selectedId ? state.draftNote : entry.note || '',
+    tags: entry.id === state.selectedId ? state.draftTags : tags,
+    pinned: !entry.pinned
+  });
+
+  if (updated) {
+    state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
+    setDraftFromEntry(updated);
+    renderEntries();
+  }
+}
+
+function showEntriesWithSameTag(entry = selectedEntry()) {
+  const tag = Array.isArray(entry?.tags) ? entry.tags[0] : '';
+  if (!tag) return;
+
+  hideEntryContextMenu();
+  searchInput.value = `#${tag}`;
+  typeFilter.value = 'tagged';
+  suppressTagSuggestions = true;
+  tagSuggestions.hidden = true;
+  loadEntries({ reset: true, preserveSelection: true });
 }
 
 function renderEntries() {
@@ -533,15 +639,18 @@ function renderEntries() {
     }
 
     item.append(icon, textWrap);
-    item.addEventListener('click', () => {
-      setDraftFromEntry(entry);
-      renderEntries();
+    item.addEventListener('click', async () => {
+      hideEntryContextMenu();
+      await selectEntry(entry);
     });
-    item.addEventListener('keydown', (event) => {
+    item.addEventListener('contextmenu', (event) => {
+      showEntryContextMenu(event, entry);
+    });
+    item.addEventListener('keydown', async (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
         event.stopPropagation();
-        setDraftFromEntry(entry);
+        await selectEntry(entry);
         pasteSelectedEntry();
       }
     });
@@ -584,19 +693,38 @@ function renderTags() {
   }
 }
 
-async function saveCurrentEntry() {
+function schedulePreviewSave() {
+  previewDirty = true;
+  clearTimeout(previewSaveTimer);
+  previewSaveTimer = setTimeout(() => {
+    previewSaveTimer = null;
+    saveCurrentEntry({ applyTransforms: false });
+  }, PREVIEW_SAVE_DELAY_MS);
+}
+
+function flushCurrentEntry(options) {
+  clearTimeout(previewSaveTimer);
+  previewSaveTimer = null;
+  if (!previewDirty && !options?.force) {
+    return Promise.resolve(null);
+  }
+  return saveCurrentEntry(options);
+}
+
+async function saveCurrentEntry({ applyTransforms = true } = {}) {
   const entry = selectedEntry();
   if (!entry) return null;
 
   const isText = entry.contentType === 'Text';
-  const transformedText = isText ? applyTextTransforms(previewEditor.value) : entry.text || '';
-  if (isText) {
-    previewEditor.value = transformedText;
+  const textBeforeSave = previewEditor.value;
+  const textToSave = isText && applyTransforms ? applyTextTransforms(textBeforeSave) : textBeforeSave;
+  if (isText && applyTransforms) {
+    previewEditor.value = textToSave;
   }
 
   const updated = await window.goodcopy.updateEntry({
     id: entry.id,
-    text: transformedText,
+    text: isText ? textToSave : entry.text || '',
     note: state.draftNote,
     tags: state.draftTags,
     pinned: Boolean(entry.pinned)
@@ -604,8 +732,12 @@ async function saveCurrentEntry() {
   if (updated) {
     state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
     if (state.selectedId === updated.id) {
+      if (!isText || previewEditor.value === textToSave) {
+        previewDirty = false;
+      }
       state.draftTags = Array.isArray(updated.tags) ? [...updated.tags] : [];
       state.draftNote = updated.note || '';
+      tagInput.value = '';
       noteInput.value = state.draftNote;
     }
     renderEntries();
@@ -615,15 +747,19 @@ async function saveCurrentEntry() {
 
 function commitMetadataInput() {
   const value = noteInput.value.trim();
-  if (value.startsWith('#')) {
-    addMetadataTag(value.slice(1).trim().split(/\s+/)[0]);
-    noteInput.value = state.draftNote;
+  state.draftNote = value;
+  return saveCurrentEntry();
+}
+
+function commitTagInput() {
+  const value = tagInput.value.trim().replace(/^#/, '').split(/\s+/)[0];
+  if (!value) {
+    tagInput.value = '';
     metadataTagSuggestions.hidden = true;
     return null;
   }
-
-  state.draftNote = value;
-  return saveCurrentEntry();
+  addMetadataTag(value);
+  return null;
 }
 
 async function loadEntries({ reset = false, preserveSelection = false } = {}) {
@@ -637,7 +773,6 @@ async function loadEntries({ reset = false, preserveSelection = false } = {}) {
     state.entries = [];
     state.totalEntries = 0;
     state.hasMoreEntries = false;
-    renderEntries();
   }
   renderEntryLoadStatus();
 
@@ -679,22 +814,7 @@ document.getElementById('oneLineButton').addEventListener('click', () => {
 });
 
 pinButton.addEventListener('click', async () => {
-  const entry = selectedEntry();
-  if (!entry) return;
-
-  const updated = await window.goodcopy.updateEntry({
-    id: entry.id,
-    text: entry.contentType === 'Text' ? previewEditor.value : entry.text || '',
-    note: state.draftNote,
-    tags: state.draftTags,
-    pinned: !entry.pinned
-  });
-
-  if (updated) {
-    state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
-    setDraftFromEntry(updated);
-    renderEntries();
-  }
+  await toggleEntryPinned();
 });
 
 function openSettings(view = 'general') {
@@ -905,18 +1025,42 @@ settingsModal.addEventListener('click', (event) => {
 });
 
 document.getElementById('deleteButton').addEventListener('click', async () => {
-  const entry = selectedEntry();
-  if (!entry) return;
-  await window.goodcopy.deleteEntry(entry.id);
-  state.selectedId = null;
-  await loadEntries({ reset: true });
+  await deleteEntry();
+});
+
+contextPinButton.addEventListener('click', async () => {
+  await toggleEntryPinned(entryById(contextMenuEntryId));
+});
+
+contextTagButton.addEventListener('click', () => {
+  showEntriesWithSameTag(entryById(contextMenuEntryId));
+});
+
+contextDeleteButton.addEventListener('click', async () => {
+  await deleteEntry(entryById(contextMenuEntryId));
+});
+
+entryContextMenu.addEventListener('click', (event) => {
+  event.stopPropagation();
+});
+
+document.addEventListener('click', () => {
+  hideEntryContextMenu();
 });
 
 previewEditor.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
     event.preventDefault();
-    saveCurrentEntry();
+    flushCurrentEntry();
   }
+});
+
+previewEditor.addEventListener('input', () => {
+  schedulePreviewSave();
+});
+
+previewEditor.addEventListener('blur', () => {
+  flushCurrentEntry({ applyTransforms: false });
 });
 
 noteInput.addEventListener('compositionstart', () => {
@@ -928,16 +1072,7 @@ noteInput.addEventListener('compositionend', () => {
 });
 
 noteInput.addEventListener('input', () => {
-  if (isTagInputMode()) {
-    renderMetadataTagSuggestions();
-  } else {
-    metadataTagSuggestions.hidden = true;
-    state.draftNote = noteInput.value.trim();
-  }
-});
-
-noteInput.addEventListener('focus', () => {
-  renderMetadataTagSuggestions();
+  state.draftNote = noteInput.value.trim();
 });
 
 noteInput.addEventListener('keydown', (event) => {
@@ -948,11 +1083,39 @@ noteInput.addEventListener('keydown', (event) => {
 });
 
 noteInput.addEventListener('blur', () => {
-  metadataTagSuggestions.hidden = true;
   commitMetadataInput();
 });
 
+tagInput.addEventListener('compositionstart', () => {
+  isTagInputComposing = true;
+});
+
+tagInput.addEventListener('compositionend', () => {
+  isTagInputComposing = false;
+});
+
+tagInput.addEventListener('input', () => {
+  renderMetadataTagSuggestions();
+});
+
+tagInput.addEventListener('focus', () => {
+  renderMetadataTagSuggestions();
+});
+
+tagInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.isComposing && !isTagInputComposing && event.keyCode !== 229) {
+    event.preventDefault();
+    commitTagInput();
+  }
+});
+
+tagInput.addEventListener('blur', () => {
+  metadataTagSuggestions.hidden = true;
+  commitTagInput();
+});
+
 searchInput.addEventListener('input', () => {
+  suppressTagSuggestions = false;
   renderTagSuggestions();
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
@@ -967,7 +1130,7 @@ searchInput.addEventListener('blur', () => {
   tagSuggestions.hidden = true;
 });
 searchInput.addEventListener('keydown', async (event) => {
-  if (event.key === 'Enter' && !event.isComposing) {
+  if (event.key === 'Enter' && !isInputMethodComposing(event)) {
     event.preventDefault();
     event.stopPropagation();
     if (searchTimer) {
@@ -979,15 +1142,37 @@ searchInput.addEventListener('keydown', async (event) => {
   }
 });
 typeFilter.addEventListener('change', async () => {
+  suppressTagSuggestions = false;
   await refreshTagSuggestions();
   loadEntries({ reset: true });
 });
 
+document.addEventListener(
+  'compositionstart',
+  () => {
+    isTextCompositionActive = true;
+  },
+  true
+);
+
+document.addEventListener(
+  'compositionend',
+  () => {
+    isTextCompositionActive = false;
+  },
+  true
+);
+
 entryPane.addEventListener('scroll', () => {
+  hideEntryContextMenu();
   const distanceFromBottom = entryPane.scrollHeight - entryPane.scrollTop - entryPane.clientHeight;
   if (distanceFromBottom < 160 && state.hasMoreEntries && !state.isLoadingEntries) {
     loadEntries();
   }
+});
+
+window.addEventListener('resize', () => {
+  hideEntryContextMenu();
 });
 
 document.addEventListener('keydown', (event) => {
@@ -1000,17 +1185,25 @@ document.addEventListener('keydown', (event) => {
   }
 
   if (event.key === 'Escape') {
+    if (!entryContextMenu.hidden) {
+      hideEntryContextMenu();
+      return;
+    }
     window.goodcopy.hideWindow();
     return;
   }
 
-  if (event.key === 'ArrowDown' && !isEditableKeyboardTarget(event.target)) {
+  const canNavigateEntries =
+    !isInputMethodComposing(event) &&
+    (!isEditableKeyboardTarget(event.target) || event.target === searchInput);
+
+  if (event.key === 'ArrowDown' && canNavigateEntries) {
     event.preventDefault();
     selectEntryByOffset(1);
     return;
   }
 
-  if (event.key === 'ArrowUp' && !isEditableKeyboardTarget(event.target)) {
+  if (event.key === 'ArrowUp' && canNavigateEntries) {
     event.preventDefault();
     selectEntryByOffset(-1);
     return;
@@ -1019,9 +1212,10 @@ document.addEventListener('keydown', (event) => {
   if (
     event.key === 'Enter' &&
     !event.shiftKey &&
-    !event.isComposing &&
+    !isInputMethodComposing(event) &&
     settingsModal.hidden &&
     document.activeElement !== previewEditor &&
+    document.activeElement !== tagInput &&
     document.activeElement !== noteInput
   ) {
     event.preventDefault();
@@ -1042,14 +1236,20 @@ window.goodcopy.onEntriesChanged((change) => {
     const index = state.entries.findIndex((entry) => entry.id === change.entry.id);
     if (index !== -1) {
       state.entries[index] = change.entry;
-      if (state.selectedId === change.entry.id && document.activeElement !== noteInput) {
+      if (
+        state.selectedId === change.entry.id &&
+        document.activeElement !== tagInput &&
+        document.activeElement !== noteInput
+      ) {
+        state.draftTags = Array.isArray(change.entry.tags) ? [...change.entry.tags] : [];
         state.draftNote = change.entry.note || '';
+        tagInput.value = '';
         noteInput.value = state.draftNote;
       }
       renderEntries();
     }
   } else {
-    loadEntries({ reset: true });
+    loadEntries({ reset: true, preserveSelection: previewDirty || document.activeElement === previewEditor });
   }
   refreshStorageUsage();
 });
