@@ -1322,6 +1322,12 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  const isEditingEntryDetails =
+    document.activeElement === previewEditor ||
+    document.activeElement === tagInput ||
+    document.activeElement === noteInput;
+  if (isEditingEntryDetails) return;
+
   if (event.key === 'Escape') {
     if (!transformMenu.hidden) {
       hideTransformMenu();
