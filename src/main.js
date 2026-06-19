@@ -25,9 +25,15 @@ let imageDir = '';
 let previousActiveWindow = null;
 let writeStoreTimer;
 let writeStoreWaiters = [];
+let storeWriteChain = Promise.resolve();
 let isQuitting = false;
 let isAiQueueRunning = false;
 const aiQueue = [];
+let shortcutRegistrationStatus = {
+  registered: false,
+  shortcut: '',
+  failedShortcut: ''
+};
 
 const CLIPBOARD_POLL_MS = 800;
 const IMAGE_CLIPBOARD_POLL_MS = 1600;
@@ -38,7 +44,8 @@ const DEFAULT_SETTINGS = {
   fetchGithubPullRequestTitles: false,
   aiProvider: 'none',
   aiInstruction: '',
-  shortcut: 'Control+P',
+  shortcut: 'CommandOrControl+P',
+  shortcutDefaultMigrated: true,
   windowSize: 'medium',
   lineSeparator: ' ',
   darkMode: false,
@@ -574,52 +581,119 @@ function migrateLegacyAutoNote(entry) {
   };
 }
 
+function parseStoreEntries(raw) {
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed.entries)) {
+    throw new Error('Clipboard store does not contain an entries array.');
+  }
+  return parsed.entries;
+}
+
+function loadStoreEntries(raw) {
+  let migratedLegacyNotes = false;
+  entries = parseStoreEntries(raw).map((entry) => {
+    const normalizedEntry = {
+      ...entry,
+      contentType: entry.contentType || 'Text',
+      tags: Array.isArray(entry.tags) ? entry.tags : [],
+      note: typeof entry.note === 'string' ? entry.note : '',
+      noteSource: entry.noteSource || '',
+      pinned: Boolean(entry.pinned),
+      masked: Boolean(entry.masked)
+    };
+    const migratedEntry = migrateLegacyAutoNote(normalizedEntry);
+    migratedLegacyNotes ||= migratedEntry !== normalizedEntry;
+    return migratedEntry;
+  });
+  lastClipboardText = entries.find((entry) => entry.contentType === 'Text')?.text || '';
+  lastClipboardImageHash = entries.find((entry) => entry.contentType === 'Image')?.imageHash || '';
+  return migratedLegacyNotes;
+}
+
+async function preserveCorruptStore() {
+  const corruptPath = path.join(
+    path.dirname(storePath),
+    `entries.corrupt-${new Date().toISOString().replaceAll(':', '-')}.json`
+  );
+  try {
+    await fs.rename(storePath, corruptPath);
+    console.error(`Preserved corrupt clipboard store at ${corruptPath}`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error('Failed to preserve corrupt clipboard store:', error);
+    }
+  }
+}
+
 async function readStore() {
+  const backupPath = `${storePath}.backup`;
+  let primaryError;
   try {
     const raw = await fs.readFile(storePath, 'utf8');
-    const parsed = JSON.parse(raw);
-    let migratedLegacyNotes = false;
-    entries = Array.isArray(parsed.entries)
-      ? parsed.entries.map((entry) => {
-          const normalizedEntry = {
-            ...entry,
-            contentType: entry.contentType || 'Text',
-            tags: Array.isArray(entry.tags) ? entry.tags : [],
-            note: typeof entry.note === 'string' ? entry.note : '',
-            noteSource: entry.noteSource || '',
-            pinned: Boolean(entry.pinned)
-          };
-          const migratedEntry = migrateLegacyAutoNote(normalizedEntry);
-          migratedLegacyNotes ||= migratedEntry !== normalizedEntry;
-          return migratedEntry;
-        })
-      : [];
-    lastClipboardText = entries.find((entry) => entry.contentType === 'Text')?.text || '';
-    lastClipboardImageHash = entries.find((entry) => entry.contentType === 'Image')?.imageHash || '';
-    if (migratedLegacyNotes) {
+    if (loadStoreEntries(raw)) {
       await writeStore();
     }
+    return;
   } catch (error) {
+    primaryError = error;
     if (error.code !== 'ENOENT') {
       console.error('Failed to read clipboard store:', error);
     }
+  }
+
+  try {
+    const backupRaw = await fs.readFile(backupPath, 'utf8');
+    loadStoreEntries(backupRaw);
+  } catch (backupError) {
+    if (backupError.code !== 'ENOENT' || primaryError.code !== 'ENOENT') {
+      console.error('Failed to recover clipboard store from backup:', backupError);
+    }
+    if (primaryError.code !== 'ENOENT') {
+      await preserveCorruptStore();
+    }
     entries = [];
+    lastClipboardText = '';
+    lastClipboardImageHash = '';
+    return;
+  }
+
+  if (primaryError.code !== 'ENOENT') {
+    await preserveCorruptStore();
+  }
+  try {
+    await writeStoreNow({ backupCurrent: false });
+    console.warn('Recovered clipboard store from backup.');
+  } catch (restoreError) {
+    // Keep the recovered entries in memory and leave the backup untouched.
+    console.error('Failed to restore recovered clipboard store:', restoreError);
   }
 }
 
 async function readSettings() {
   try {
     const raw = await fs.readFile(settingsPath, 'utf8');
+    const storedSettings = JSON.parse(raw);
     settings = {
       ...DEFAULT_SETTINGS,
-      ...JSON.parse(raw)
+      ...storedSettings
     };
     delete settings.fetchPullRequestTitles;
     if (settings.aiInstruction === LEGACY_GITHUB_AI_INSTRUCTION) {
       settings.aiInstruction = '';
       await writeSettings();
     }
-    settings.shortcut = normalizeShortcut(settings.shortcut);
+    // Migrate the original macOS default once, while preserving later user choices.
+    if (process.platform === 'darwin' && !storedSettings.shortcutDefaultMigrated) {
+      if (storedSettings.shortcut === 'Control+P') {
+        settings.shortcut = 'Command+P';
+      } else {
+        settings.shortcut = normalizeShortcut(settings.shortcut);
+      }
+      settings.shortcutDefaultMigrated = true;
+      await writeSettings();
+    } else {
+      settings.shortcut = normalizeShortcut(settings.shortcut);
+    }
     settings.lineSeparator = normalizeLineSeparator(settings.lineSeparator);
   } catch (error) {
     if (error.code !== 'ENOENT') {
@@ -643,9 +717,39 @@ function applyWindowSize() {
   mainWindow.center();
 }
 
-async function writeStoreNow() {
-  await fs.mkdir(path.dirname(storePath), { recursive: true });
-  await fs.writeFile(storePath, JSON.stringify({ entries }, null, 2), 'utf8');
+async function atomicWriteFile(filePath, contents) {
+  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  try {
+    await fs.writeFile(temporaryPath, contents, 'utf8');
+    await fs.rename(temporaryPath, filePath);
+  } finally {
+    await fs.unlink(temporaryPath).catch(() => {});
+  }
+}
+
+async function writeStoreSnapshot(snapshot, { backupCurrent = true } = {}) {
+  if (backupCurrent) {
+    try {
+      const current = await fs.readFile(storePath, 'utf8');
+      parseStoreEntries(current);
+      await atomicWriteFile(`${storePath}.backup`, current);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.error('Skipped invalid clipboard store backup:', error);
+      }
+    }
+  }
+  await atomicWriteFile(storePath, snapshot);
+}
+
+function writeStoreNow(options = {}) {
+  const snapshot = JSON.stringify({ entries }, null, 2);
+  const operation = storeWriteChain
+    .catch(() => {})
+    .then(() => writeStoreSnapshot(snapshot, options));
+  storeWriteChain = operation;
+  return operation;
 }
 
 function writeStore() {
@@ -740,6 +844,7 @@ function addClipboardText(text, source = 'Clipboard') {
     noteSource: existing?.noteSource || '',
     tags: existing?.tags || [],
     pinned: Boolean(existing?.pinned),
+    masked: Boolean(existing?.masked),
     source: existing?.source || source,
     contentType: 'Text',
     createdAt: existing?.createdAt || nowIso(),
@@ -789,6 +894,7 @@ async function addClipboardImage(image, source = 'Clipboard') {
     noteSource: existing?.noteSource || '',
     tags: existing?.tags || [],
     pinned: Boolean(existing?.pinned),
+    masked: Boolean(existing?.masked),
     source: existing?.source || source,
     contentType: 'Image',
     imagePath,
@@ -867,13 +973,29 @@ async function togglePanel() {
   });
 }
 
-function registerShortcuts() {
+function registerShortcuts({ preserveFailure = false } = {}) {
   globalShortcut.unregisterAll();
   const registered = globalShortcut.register(settings.shortcut, togglePanel);
+  shortcutRegistrationStatus = {
+    registered,
+    shortcut: registered ? settings.shortcut : '',
+    failedShortcut: preserveFailure && shortcutRegistrationStatus.failedShortcut
+      ? shortcutRegistrationStatus.failedShortcut
+      : registered
+        ? ''
+        : settings.shortcut
+  };
   if (!registered) {
     console.warn(`${settings.shortcut} global shortcut registration failed.`);
   }
   return registered;
+}
+
+function settingsForRenderer() {
+  return {
+    ...settings,
+    shortcutRegistration: { ...shortcutRegistrationStatus }
+  };
 }
 
 function delay(ms) {
@@ -993,7 +1115,7 @@ app.on('will-quit', () => {
 ipcMain.handle('entries:list', (_event, options) => queryRendererEntries(options));
 ipcMain.handle('entries:tags', () => listEntryTags());
 
-ipcMain.handle('settings:get', () => settings);
+ipcMain.handle('settings:get', () => settingsForRenderer());
 
 ipcMain.handle('github:status', () => refreshGithubStatus());
 
@@ -1036,10 +1158,10 @@ ipcMain.handle('settings:update', async (_event, nextSettings) => {
   if (!registered) {
     settings.shortcut = previousSettings.shortcut || DEFAULT_SETTINGS.shortcut;
     await writeSettings();
-    registerShortcuts();
+    registerShortcuts({ preserveFailure: true });
   }
   applyWindowSize();
-  return settings;
+  return settingsForRenderer();
 });
 
 ipcMain.handle('entries:update', async (_event, nextEntry) => {
@@ -1057,6 +1179,7 @@ ipcMain.handle('entries:update', async (_event, nextEntry) => {
     noteSource: typeof nextEntry.note === 'string' ? 'manual' : current.noteSource || '',
     tags: Array.isArray(nextEntry.tags) ? nextEntry.tags : entries[index].tags,
     pinned: typeof nextEntry.pinned === 'boolean' ? nextEntry.pinned : Boolean(current.pinned),
+    masked: typeof nextEntry.masked === 'boolean' ? nextEntry.masked : Boolean(current.masked),
     updatedAt: nowIso()
   };
 
@@ -1121,6 +1244,7 @@ ipcMain.handle('entries:paste', async (_event, payload) => {
       entry.noteSource = 'manual';
     }
     entry.pinned = typeof payload.pinned === 'boolean' ? payload.pinned : Boolean(entry.pinned);
+    entry.masked = typeof payload.masked === 'boolean' ? payload.masked : Boolean(entry.masked);
     entry.updatedAt = nowIso();
 
     if (entry.contentType === 'Text') {

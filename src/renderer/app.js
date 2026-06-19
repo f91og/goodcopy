@@ -26,6 +26,7 @@ const transformButton = document.getElementById('transformButton');
 const transformOneLineButton = document.getElementById('transformOneLineButton');
 const transformRemoveBlankLinesButton = document.getElementById('transformRemoveBlankLinesButton');
 const transformTrimLeadingSpacesButton = document.getElementById('transformTrimLeadingSpacesButton');
+const transformMaskButton = document.getElementById('transformMaskButton');
 const previewEditor = document.getElementById('previewEditor');
 const imagePreview = document.getElementById('imagePreview');
 const previewImage = document.getElementById('previewImage');
@@ -48,6 +49,8 @@ const aiInstructionInput = document.getElementById('aiInstructionInput');
 const aiTestButton = document.getElementById('aiTestButton');
 const aiSettingsButton = document.getElementById('aiSettingsButton');
 const shortcutRecordButton = document.getElementById('shortcutRecordButton');
+const shortcutStatus = document.getElementById('shortcutStatus');
+const shortcutWarning = document.getElementById('shortcutWarning');
 const windowSizeSelect = document.getElementById('windowSizeSelect');
 const lineSeparatorButton = document.getElementById('lineSeparatorButton');
 const settingsModal = document.getElementById('settingsModal');
@@ -177,7 +180,7 @@ function readSettingsForm() {
     fetchGithubPullRequestTitles: fetchGithubPullRequestTitlesToggle.checked,
     aiProvider: aiProviderSelect.value,
     aiInstruction: aiInstructionInput.value,
-    shortcut: shortcutRecordButton.dataset.shortcut || 'Control+P',
+    shortcut: shortcutRecordButton.dataset.shortcut || 'CommandOrControl+P',
     windowSize: windowSizeSelect.value,
     lineSeparator: lineSeparatorButton.dataset.separator || ' ',
     darkMode: darkModeToggle.checked
@@ -191,9 +194,28 @@ function applySettingsToForm(settings) {
   aiProviderSelect.value = settings.aiProvider || 'none';
   aiInstructionInput.value = settings.aiInstruction || '';
   aiInstructionInput.disabled = true;
-  shortcutRecordButton.dataset.shortcut = settings.shortcut || 'Control+P';
+  shortcutRecordButton.dataset.shortcut = settings.shortcut || 'CommandOrControl+P';
   shortcutRecordButton.textContent = shortcutText(shortcutRecordButton.dataset.shortcut);
   shortcutRecordButton.classList.remove('recording');
+  const registration = settings.shortcutRegistration || {};
+  const failedShortcut = registration.failedShortcut ? shortcutText(registration.failedShortcut) : '';
+  const activeShortcut = registration.shortcut ? shortcutText(registration.shortcut) : '';
+  if (failedShortcut) {
+    const message = registration.registered
+      ? `无法注册 ${failedShortcut}，可能已被占用。已恢复使用 ${activeShortcut}。`
+      : `无法注册 ${failedShortcut}，可能已被占用。请设置新的呼出快捷键。`;
+    shortcutStatus.textContent = message;
+    shortcutStatus.classList.add('error');
+    shortcutWarning.textContent = message;
+    shortcutWarning.hidden = false;
+  } else {
+    shortcutStatus.textContent = registration.registered && activeShortcut
+      ? `已启用 ${activeShortcut}`
+      : '快捷键尚未注册。';
+    shortcutStatus.classList.remove('error');
+    shortcutWarning.hidden = true;
+    shortcutWarning.textContent = '';
+  }
   windowSizeSelect.value = settings.windowSize || 'medium';
   const lineSeparator = settings.lineSeparator || ' ';
   lineSeparatorButton.dataset.separator = lineSeparator;
@@ -282,6 +304,10 @@ function renderCachedGithubStatus(status) {
 
 function applyTextTransforms(text) {
   return text;
+}
+
+function maskContent(text) {
+  return String(text || '') ? '...............' : '';
 }
 
 function selectedEntry() {
@@ -433,12 +459,16 @@ function setDraftFromEntry(entry) {
   previewDirty = false;
   state.selectedId = entry?.id || null;
   const isImage = entry?.contentType === 'Image';
-  const draftText = isImage ? '' : applyTextTransforms(entry?.text || '');
+  const isMasked = Boolean(entry?.masked) && !isImage;
+  const originalText = applyTextTransforms(entry?.text || '');
+  const draftText = isImage ? '' : isMasked ? maskContent(originalText) : originalText;
   state.draftTags = Array.isArray(entry?.tags) ? [...entry.tags] : [];
   state.draftNote = entry?.note || '';
   previewEditor.value = draftText;
+  previewEditor.readOnly = isMasked;
   tagInput.value = '';
   noteInput.value = state.draftNote;
+  noteInput.readOnly = false;
   metadataTagSuggestions.hidden = true;
   tagInput.disabled = !entry;
   noteInput.disabled = !entry;
@@ -478,8 +508,12 @@ async function pasteSelectedEntry() {
   if (!entry) return;
 
   const isText = entry.contentType === 'Text';
-  const text = isText ? applyTextTransforms(previewEditor.value) : entry.text || '';
-  if (isText) {
+  const text = isText
+    ? entry.masked
+      ? entry.text || ''
+      : applyTextTransforms(previewEditor.value)
+    : entry.text || '';
+  if (isText && !entry.masked) {
     previewEditor.value = text;
   }
 
@@ -488,7 +522,8 @@ async function pasteSelectedEntry() {
     text,
     note: state.draftNote,
     tags: state.draftTags,
-    pinned: Boolean(entry.pinned)
+    pinned: Boolean(entry.pinned),
+    masked: Boolean(entry.masked)
   });
 }
 
@@ -516,6 +551,13 @@ function positionFloatingMenu(menu, anchor) {
 
 function showTransformMenu() {
   hideEntryContextMenu();
+  const entry = selectedEntry();
+  const transformationsDisabled = !entry || entry.contentType === 'Image' || Boolean(entry.masked);
+  transformOneLineButton.disabled = transformationsDisabled;
+  transformRemoveBlankLinesButton.disabled = transformationsDisabled;
+  transformTrimLeadingSpacesButton.disabled = transformationsDisabled;
+  transformMaskButton.textContent = entry?.masked ? '取消遮掩' : '遮掩内容';
+  transformMaskButton.disabled = !entry || entry.contentType === 'Image';
   positionFloatingMenu(transformMenu, transformButton);
 }
 
@@ -570,12 +612,13 @@ async function deleteEntry(entry = selectedEntry(), { confirmProtected = true } 
     deletedIndex > 0
       ? entriesBeforeDelete[deletedIndex - 1]?.id
       : entriesBeforeDelete[deletedIndex + 1]?.id || null;
+  const selectedIdAfterDelete = state.selectedId === entry.id ? nextSelectedId : state.selectedId;
   hideEntryContextMenu();
   await window.goodcopy.deleteEntry(entry.id);
-  if (state.selectedId === entry.id) {
-    state.selectedId = nextSelectedId;
-  }
-  await loadEntries({ reset: true, selectedId: nextSelectedId });
+  state.selectedId = selectedIdAfterDelete;
+  await loadEntries({ reset: true, selectedId: selectedIdAfterDelete });
+  setDraftFromEntry(selectedEntry());
+  renderEntries();
 }
 
 async function toggleEntryPinned(entry = selectedEntry()) {
@@ -588,12 +631,15 @@ async function toggleEntryPinned(entry = selectedEntry()) {
     text:
       entry.contentType === 'Text'
         ? entry.id === state.selectedId
-          ? previewEditor.value
+          ? entry.masked
+            ? entry.text || ''
+            : previewEditor.value
           : entry.text || ''
         : entry.text || '',
     note: entry.id === state.selectedId ? state.draftNote : entry.note || '',
     tags: entry.id === state.selectedId ? state.draftTags : tags,
-    pinned: !entry.pinned
+    pinned: !entry.pinned,
+    masked: Boolean(entry.masked)
   });
 
   if (updated) {
@@ -616,7 +662,7 @@ function showEntriesWithSameTag(entry = selectedEntry()) {
 }
 
 function applyPreviewTransform(transformer) {
-  if (selectedEntry()?.contentType === 'Image') return;
+  if (selectedEntry()?.contentType === 'Image' || selectedEntry()?.masked) return;
   hideTransformMenu();
   previewEditor.value = transformer(previewEditor.value);
   previewDirty = true;
@@ -648,22 +694,11 @@ function renderEntries() {
     item.tabIndex = 0;
     item.dataset.id = entry.id;
 
-    let icon;
-    if (entry.contentType === 'Image' && entry.imageUrl) {
-      icon = document.createElement('img');
-      icon.className = 'entry-thumb';
-      icon.src = entry.imageUrl;
-      icon.alt = '';
-    } else {
-      icon = document.createElement('span');
-      icon.className = 'entry-icon';
-      icon.setAttribute('aria-hidden', 'true');
-    }
-
     const textWrap = document.createElement('div');
     const title = document.createElement('div');
     title.className = 'entry-title';
-    title.textContent = `${entry.pinned ? 'Pin · ' : ''}${entry.note || entry.title}`;
+    const displayTitle = entry.note || (entry.masked ? maskContent(entry.title) : entry.title);
+    title.textContent = `${entry.pinned ? 'Pin · ' : ''}${displayTitle}`;
     textWrap.append(title);
 
     if (tags.length) {
@@ -673,7 +708,7 @@ function renderEntries() {
       textWrap.append(tagLine);
     }
 
-    item.append(icon, textWrap);
+    item.append(textWrap);
     item.addEventListener('click', async () => {
       hideEntryContextMenu();
       await selectEntry(entry);
@@ -751,9 +786,9 @@ async function saveCurrentEntry({ applyTransforms = true } = {}) {
   if (!entry) return null;
 
   const isText = entry.contentType === 'Text';
-  const textBeforeSave = previewEditor.value;
-  const textToSave = isText && applyTransforms ? applyTextTransforms(textBeforeSave) : textBeforeSave;
-  if (isText && applyTransforms) {
+  const textBeforeSave = entry.masked ? entry.text || '' : previewEditor.value;
+  const textToSave = isText && applyTransforms && !entry.masked ? applyTextTransforms(textBeforeSave) : textBeforeSave;
+  if (isText && applyTransforms && !entry.masked) {
     previewEditor.value = textToSave;
   }
 
@@ -762,7 +797,8 @@ async function saveCurrentEntry({ applyTransforms = true } = {}) {
     text: isText ? textToSave : entry.text || '',
     note: state.draftNote,
     tags: state.draftTags,
-    pinned: Boolean(entry.pinned)
+    pinned: Boolean(entry.pinned),
+    masked: Boolean(entry.masked)
   });
   if (updated) {
     state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
@@ -774,6 +810,7 @@ async function saveCurrentEntry({ applyTransforms = true } = {}) {
       state.draftNote = updated.note || '';
       tagInput.value = '';
       noteInput.value = state.draftNote;
+      noteInput.readOnly = false;
     }
     renderEntries();
   }
@@ -833,7 +870,7 @@ async function loadEntries({ reset = false, preserveSelection = false, selectedI
   } finally {
     if (requestId === entryLoadRequestId) {
       state.isLoadingEntries = false;
-      renderEntryLoadStatus();
+      renderEntries();
     }
   }
 }
@@ -864,6 +901,26 @@ transformRemoveBlankLinesButton.addEventListener('click', () => {
 
 transformTrimLeadingSpacesButton.addEventListener('click', () => {
   applyPreviewTransform((text) => text.replace(/^[ \t]+/, ''));
+});
+
+transformMaskButton.addEventListener('click', async () => {
+  const entry = selectedEntry();
+  if (!entry || entry.contentType === 'Image') return;
+  hideTransformMenu();
+
+  const updated = await window.goodcopy.updateEntry({
+    id: entry.id,
+    text: entry.text || '',
+    note: state.draftNote,
+    tags: state.draftTags,
+    pinned: Boolean(entry.pinned),
+    masked: !entry.masked
+  });
+  if (!updated) return;
+
+  state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
+  setDraftFromEntry(updated);
+  renderEntries();
 });
 
 pinButton.addEventListener('click', async () => {
@@ -955,7 +1012,7 @@ shortcutRecordButton.addEventListener('click', () => {
 
 function stopShortcutRecording() {
   shortcutRecordButton.classList.remove('recording');
-  shortcutRecordButton.textContent = shortcutText(shortcutRecordButton.dataset.shortcut || 'Control+P');
+  shortcutRecordButton.textContent = shortcutText(shortcutRecordButton.dataset.shortcut || 'CommandOrControl+P');
 }
 
 shortcutRecordButton.addEventListener('keydown', (event) => {
@@ -1319,6 +1376,7 @@ window.goodcopy.onEntriesChanged((change) => {
         state.draftNote = change.entry.note || '';
         tagInput.value = '';
         noteInput.value = state.draftNote;
+        noteInput.readOnly = false;
       }
       renderEntries();
     }
@@ -1329,6 +1387,10 @@ window.goodcopy.onEntriesChanged((change) => {
 });
 
 window.goodcopy.onPanelOpened(async () => {
+  typeFilter.value = 'all';
+  searchInput.value = '';
+  suppressTagSuggestions = false;
+  tagSuggestions.hidden = true;
   await loadEntries({ reset: true });
   await refreshTagSuggestions();
   searchInput.focus();

@@ -7,9 +7,8 @@
   --footer-height: 52px;
   --search-size: 23px;
   --type-size: 18px;
-  --entry-title-size: 19px;
+  --entry-title-size: 16px;
   --entry-min-height: 54px;
-  --entry-icon-size: 34px;
   --preview-size: 16px;
   --button-height: 34px;
   --footer-brand-size: 16px;
@@ -41,9 +40,8 @@ body {
   --footer-height: 42px;
   --search-size: 17px;
   --type-size: 14px;
-  --entry-title-size: 14px;
+  --entry-title-size: 13px;
   --entry-min-height: 40px;
-  --entry-icon-size: 26px;
   --preview-size: 13px;
   --button-height: 28px;
   --footer-brand-size: 12px;
@@ -66,9 +64,8 @@ body {
   --footer-height: 46px;
   --search-size: 19px;
   --type-size: 15px;
-  --entry-title-size: 16px;
+  --entry-title-size: 14px;
   --entry-min-height: 44px;
-  --entry-icon-size: 29px;
   --preview-size: 14px;
   --button-height: 30px;
   --footer-brand-size: 13px;
@@ -91,7 +88,6 @@ body {
 }
 
 :root.size-medium .entry-item {
-  gap: 10px;
   margin-block: 1px;
   padding: 6px 12px;
 }
@@ -114,9 +110,8 @@ body {
   --footer-height: 46px;
   --search-size: 19px;
   --type-size: 15px;
-  --entry-title-size: 15px;
+  --entry-title-size: 14px;
   --entry-min-height: 42px;
-  --entry-icon-size: 28px;
   --preview-size: 14px;
   --button-height: 30px;
   --footer-brand-size: 13px;
@@ -139,7 +134,6 @@ body {
 }
 
 :root.size-large .entry-item {
-  gap: 10px;
   margin-block: 1px;
   padding: 6px 12px;
 }
@@ -169,10 +163,27 @@ textarea {
 }
 
 .app-shell {
+  position: relative;
   height: 100vh;
   display: grid;
   grid-template-rows: var(--topbar-height) 1fr var(--footer-height);
   background: rgba(232, 232, 230, 0.88);
+}
+
+.shortcut-warning {
+  position: absolute;
+  z-index: 20;
+  top: calc(var(--topbar-height) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 8px 12px;
+  border: 1px solid rgba(159, 28, 28, 0.35);
+  border-radius: 8px;
+  background: rgba(255, 238, 238, 0.96);
+  color: #8d1818;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
 }
 
 .topbar {
@@ -351,9 +362,8 @@ textarea {
 
 .entry-item {
   display: grid;
-  grid-template-columns: var(--entry-icon-size) 1fr;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
   min-height: var(--entry-min-height);
   margin: 2px 0;
   padding: 8px 14px;
@@ -366,35 +376,6 @@ textarea {
 
 .entry-item.selected {
   background: rgba(0, 0, 0, 0.09);
-}
-
-.entry-icon {
-  width: calc(var(--entry-icon-size) * 0.65);
-  height: calc(var(--entry-icon-size) * 0.76);
-  border: 2px solid #1d1d1d;
-  border-radius: 4px;
-  position: relative;
-}
-
-.entry-icon::after {
-  content: "";
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 8px;
-  height: 8px;
-  border-left: 2px solid #1d1d1d;
-  border-bottom: 2px solid #1d1d1d;
-  background: rgba(232, 232, 230, 0.95);
-}
-
-.entry-thumb {
-  width: var(--entry-icon-size);
-  height: var(--entry-icon-size);
-  border-radius: 6px;
-  object-fit: cover;
-  background: rgba(255, 255, 255, 0.32);
-  border: 1px solid rgba(0, 0, 0, 0.12);
 }
 
 .entry-title {
@@ -437,6 +418,11 @@ textarea {
   -webkit-app-region: no-drag;
 }
 
+.transform-menu {
+  width: max-content;
+  min-width: 0;
+}
+
 .entry-context-menu button {
   display: block;
   width: 100%;
@@ -449,6 +435,11 @@ textarea {
   font-size: var(--footer-button-size);
   text-align: left;
   cursor: pointer;
+}
+
+.transform-menu button {
+  min-width: 100%;
+  padding-inline: 8px;
 }
 
 .entry-context-menu button:hover,
@@ -818,6 +809,10 @@ textarea {
   font-size: 0.82em;
 }
 
+.settings-note.error {
+  color: #9f1c1c;
+}
+
 .shortcut-record {
   width: max-content;
   min-width: 0;
@@ -880,6 +875,16 @@ textarea {
   background: rgba(28, 28, 28, 0.96);
 }
 
+:root.dark-mode .shortcut-warning {
+  border-color: rgba(255, 110, 110, 0.35);
+  background: rgba(72, 24, 24, 0.96);
+  color: #ffb3b3;
+}
+
+:root.dark-mode .settings-note.error {
+  color: #ff9d9d;
+}
+
 :root.dark-mode .topbar,
 :root.dark-mode .preview-stage,
 :root.dark-mode .footerbar,
@@ -910,15 +915,6 @@ textarea {
   color: #ededed;
 }
 
-:root.dark-mode .entry-icon {
-  border-color: #cfcfcf;
-}
-
-:root.dark-mode .entry-icon::after {
-  border-color: #cfcfcf;
-  background: #1c1c1c;
-}
-
 :root.dark-mode .icon-button {
   background: rgba(255, 255, 255, 0.12);
   color: #ededed;
@@ -932,11 +928,6 @@ textarea {
 :root.dark-mode .pane-resize-handle:focus-visible::after,
 :root.dark-mode .content.resizing .pane-resize-handle::after {
   background: rgba(255, 255, 255, 0.4);
-}
-
-:root.dark-mode .entry-thumb {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.08);
 }
 
 :root.dark-mode .date-label,

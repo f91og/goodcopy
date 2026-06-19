@@ -26,6 +26,8 @@
         </select>
       </header>
 
+      <div id="shortcutWarning" class="shortcut-warning" role="alert" hidden></div>
+
       <section class="content">
         <aside class="entry-pane">
           <div class="date-label">Today</div>
@@ -103,6 +105,7 @@
       <button id="transformOneLineButton" type="button" role="menuitem">变为一行</button>
       <button id="transformRemoveBlankLinesButton" type="button" role="menuitem">去除所有空行</button>
       <button id="transformTrimLeadingSpacesButton" type="button" role="menuitem">去除首行前空格</button>
+      <button id="transformMaskButton" type="button" role="menuitem">遮掩内容</button>
     </div>
 
     <div id="settingsModal" class="modal-backdrop" hidden>
@@ -130,8 +133,9 @@
           </div>
           <label class="settings-field">
             <span>呼出快捷键</span>
-            <button id="shortcutRecordButton" class="shortcut-record" type="button">Ctrl P</button>
+            <button id="shortcutRecordButton" class="shortcut-record" type="button">Cmd/Ctrl P</button>
           </label>
+          <div id="shortcutStatus" class="settings-note"></div>
 
           <label class="settings-field">
             <span>窗口大小</span>
