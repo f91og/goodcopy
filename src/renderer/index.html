@@ -62,12 +62,12 @@
 
           <div class="tool-row">
             <button id="pinButton" class="tool-button pin-button" type="button">Pin</button>
-            <button id="oneLineButton" class="tool-button text-only-control" type="button">变为一行</button>
+            <button id="transformButton" class="tool-button text-only-control" type="button">变换</button>
             <div class="metadata-field">
               <div id="metadataTagSuggestions" class="tag-suggestions metadata-tag-suggestions" hidden></div>
               <input id="tagInput" class="tag-input" type="text" placeholder="添加 tag" />
             </div>
-            <input id="noteInput" class="note-input" type="text" placeholder="输入描述" />
+            <input id="noteInput" class="note-input" type="text" placeholder="请输入标题" />
           </div>
         </section>
       </section>
@@ -99,6 +99,12 @@
       <button id="contextDeleteButton" class="danger-action" type="button" role="menuitem">删除</button>
     </div>
 
+    <div id="transformMenu" class="entry-context-menu transform-menu" role="menu" hidden>
+      <button id="transformOneLineButton" type="button" role="menuitem">变为一行</button>
+      <button id="transformRemoveBlankLinesButton" type="button" role="menuitem">去除所有空行</button>
+      <button id="transformTrimLeadingSpacesButton" type="button" role="menuitem">去除首行前空格</button>
+    </div>
+
     <div id="settingsModal" class="modal-backdrop" hidden>
       <section class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <header class="settings-header">
@@ -107,14 +113,6 @@
         </header>
 
         <div id="generalSettingsBody" class="settings-body">
-          <label class="settings-check">
-            <input id="removeBlankLinesToggle" type="checkbox" />
-            <span>去除所有空行</span>
-          </label>
-          <label class="settings-check">
-            <input id="trimLeadingSpacesToggle" type="checkbox" />
-            <span>去除首行前空格</span>
-          </label>
           <label class="settings-check">
             <input id="darkModeToggle" type="checkbox" />
             <span>暗黑模式</span>

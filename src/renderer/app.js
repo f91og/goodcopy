@@ -21,6 +21,11 @@ const entryContextMenu = document.getElementById('entryContextMenu');
 const contextPinButton = document.getElementById('contextPinButton');
 const contextTagButton = document.getElementById('contextTagButton');
 const contextDeleteButton = document.getElementById('contextDeleteButton');
+const transformMenu = document.getElementById('transformMenu');
+const transformButton = document.getElementById('transformButton');
+const transformOneLineButton = document.getElementById('transformOneLineButton');
+const transformRemoveBlankLinesButton = document.getElementById('transformRemoveBlankLinesButton');
+const transformTrimLeadingSpacesButton = document.getElementById('transformTrimLeadingSpacesButton');
 const previewEditor = document.getElementById('previewEditor');
 const imagePreview = document.getElementById('imagePreview');
 const previewImage = document.getElementById('previewImage');
@@ -32,8 +37,6 @@ const tagInput = document.getElementById('tagInput');
 const noteInput = document.getElementById('noteInput');
 const metadataTagSuggestions = document.getElementById('metadataTagSuggestions');
 const pinButton = document.getElementById('pinButton');
-const removeBlankLinesToggle = document.getElementById('removeBlankLinesToggle');
-const trimLeadingSpacesToggle = document.getElementById('trimLeadingSpacesToggle');
 const darkModeToggle = document.getElementById('darkModeToggle');
 const fetchGithubPullRequestTitlesToggle = document.getElementById('fetchGithubPullRequestTitlesToggle');
 const githubLoginButton = document.getElementById('githubLoginButton');
@@ -171,8 +174,6 @@ async function refreshStorageUsage() {
 
 function readSettingsForm() {
   return {
-    removeBlankLines: removeBlankLinesToggle.checked,
-    trimLeadingSpaces: trimLeadingSpacesToggle.checked,
     fetchGithubPullRequestTitles: fetchGithubPullRequestTitlesToggle.checked,
     aiProvider: aiProviderSelect.value,
     aiInstruction: aiInstructionInput.value,
@@ -185,8 +186,6 @@ function readSettingsForm() {
 
 function applySettingsToForm(settings) {
   state.settings = { ...settings };
-  removeBlankLinesToggle.checked = Boolean(settings.removeBlankLines);
-  trimLeadingSpacesToggle.checked = Boolean(settings.trimLeadingSpaces);
   darkModeToggle.checked = Boolean(settings.darkMode);
   fetchGithubPullRequestTitlesToggle.checked = Boolean(settings.fetchGithubPullRequestTitles);
   aiProviderSelect.value = settings.aiProvider || 'none';
@@ -282,17 +281,7 @@ function renderCachedGithubStatus(status) {
 }
 
 function applyTextTransforms(text) {
-  let lines = text.split('\n');
-
-  if (removeBlankLinesToggle.checked) {
-    lines = lines.filter((line) => line.trim().length > 0);
-  }
-
-  if (trimLeadingSpacesToggle.checked && lines.length) {
-    lines[0] = lines[0].replace(/^[ \t]+/, '');
-  }
-
-  return lines.join('\n');
+  return text;
 }
 
 function selectedEntry() {
@@ -508,6 +497,28 @@ function hideEntryContextMenu() {
   entryContextMenu.hidden = true;
 }
 
+function hideTransformMenu() {
+  transformMenu.hidden = true;
+}
+
+function positionFloatingMenu(menu, anchor) {
+  menu.hidden = false;
+
+  const anchorBounds = anchor.getBoundingClientRect();
+  const { width, height } = menu.getBoundingClientRect();
+  const belowTop = anchorBounds.bottom + 8;
+  const aboveTop = anchorBounds.top - height - 8;
+  const top = belowTop + height > window.innerHeight - 8 && aboveTop > 8 ? aboveTop : belowTop;
+  const left = Math.min(anchorBounds.left, window.innerWidth - width - 8);
+  menu.style.left = `${Math.max(8, left)}px`;
+  menu.style.top = `${Math.max(8, top)}px`;
+}
+
+function showTransformMenu() {
+  hideEntryContextMenu();
+  positionFloatingMenu(transformMenu, transformButton);
+}
+
 function positionEntryContextMenu(x, y) {
   entryContextMenu.hidden = false;
 
@@ -522,26 +533,49 @@ async function showEntryContextMenu(event, entry) {
   event.preventDefault();
   event.stopPropagation();
 
-  await flushCurrentEntry();
-  setDraftFromEntry(entry);
-  renderEntries();
-
+  hideTransformMenu();
   const tags = Array.isArray(entry.tags) ? entry.tags : [];
   contextMenuEntryId = entry.id;
   contextPinButton.textContent = entry.pinned ? '取消置顶' : '置顶';
   contextTagButton.textContent = tags[0] ? `显示相同 tag: #${tags[0]}` : '显示相同 tag';
   contextTagButton.disabled = !tags.length;
   positionEntryContextMenu(event.clientX, event.clientY);
+
+  if (entry.id === state.selectedId) return;
+  if (previewDirty) {
+    flushCurrentEntry();
+    return;
+  }
+  setDraftFromEntry(entry);
+  renderEntries();
 }
 
-async function deleteEntry(entry = selectedEntry()) {
+function entryNeedsDeleteConfirmation(entry) {
+  const tags = Array.isArray(entry?.tags) ? entry.tags : [];
+  return tags.length > 0 || Boolean(String(entry?.note || '').trim());
+}
+
+async function deleteEntry(entry = selectedEntry(), { confirmProtected = true } = {}) {
   if (!entry) return;
+  if (
+    confirmProtected &&
+    entryNeedsDeleteConfirmation(entry) &&
+    !window.confirm('这个 entry 有 tag 或标题，确认删除吗？')
+  ) {
+    return;
+  }
+  const entriesBeforeDelete = filteredEntries();
+  const deletedIndex = entriesBeforeDelete.findIndex((item) => item.id === entry.id);
+  const nextSelectedId =
+    deletedIndex > 0
+      ? entriesBeforeDelete[deletedIndex - 1]?.id
+      : entriesBeforeDelete[deletedIndex + 1]?.id || null;
   hideEntryContextMenu();
   await window.goodcopy.deleteEntry(entry.id);
   if (state.selectedId === entry.id) {
-    state.selectedId = null;
+    state.selectedId = nextSelectedId;
   }
-  await loadEntries({ reset: true });
+  await loadEntries({ reset: true, selectedId: nextSelectedId });
 }
 
 async function toggleEntryPinned(entry = selectedEntry()) {
@@ -579,6 +613,14 @@ function showEntriesWithSameTag(entry = selectedEntry()) {
   suppressTagSuggestions = true;
   tagSuggestions.hidden = true;
   loadEntries({ reset: true, preserveSelection: true });
+}
+
+function applyPreviewTransform(transformer) {
+  if (selectedEntry()?.contentType === 'Image') return;
+  hideTransformMenu();
+  previewEditor.value = transformer(previewEditor.value);
+  previewDirty = true;
+  saveCurrentEntry({ applyTransforms: false });
 }
 
 function renderEntries() {
@@ -621,15 +663,8 @@ function renderEntries() {
     const textWrap = document.createElement('div');
     const title = document.createElement('div');
     title.className = 'entry-title';
-    title.textContent = `${entry.pinned ? 'Pin · ' : ''}${entry.title}`;
+    title.textContent = `${entry.pinned ? 'Pin · ' : ''}${entry.note || entry.title}`;
     textWrap.append(title);
-
-    if (entry.note) {
-      const noteLine = document.createElement('div');
-      noteLine.className = 'entry-note';
-      noteLine.textContent = entry.note;
-      textWrap.append(noteLine);
-    }
 
     if (tags.length) {
       const tagLine = document.createElement('div');
@@ -762,12 +797,12 @@ function commitTagInput() {
   return null;
 }
 
-async function loadEntries({ reset = false, preserveSelection = false } = {}) {
+async function loadEntries({ reset = false, preserveSelection = false, selectedId = null } = {}) {
   if (state.isLoadingEntries && !reset) return;
 
   const requestId = reset ? ++entryLoadRequestId : entryLoadRequestId;
   const offset = reset ? 0 : state.entries.length;
-  const selectedIdBeforeReset = preserveSelection ? state.selectedId : null;
+  const selectedIdBeforeReset = selectedId || (preserveSelection ? state.selectedId : null);
   state.isLoadingEntries = true;
   if (reset) {
     state.entries = [];
@@ -803,14 +838,32 @@ async function loadEntries({ reset = false, preserveSelection = false } = {}) {
   }
 }
 
-document.getElementById('oneLineButton').addEventListener('click', () => {
-  if (selectedEntry()?.contentType === 'Image') return;
-  const separator = state.settings?.lineSeparator || ' ';
-  previewEditor.value = previewEditor.value
-    .replace(/\s*\n+\s*/g, separator)
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-  saveCurrentEntry();
+transformButton.addEventListener('click', (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (transformMenu.hidden) {
+    showTransformMenu();
+  } else {
+    hideTransformMenu();
+  }
+});
+
+transformOneLineButton.addEventListener('click', () => {
+  applyPreviewTransform((text) => {
+    const separator = state.settings?.lineSeparator || ' ';
+    return text
+      .replace(/\s*\n+\s*/g, separator)
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+  });
+});
+
+transformRemoveBlankLinesButton.addEventListener('click', () => {
+  applyPreviewTransform((text) => text.split('\n').filter((line) => line.trim().length > 0).join('\n'));
+});
+
+transformTrimLeadingSpacesButton.addEventListener('click', () => {
+  applyPreviewTransform((text) => text.replace(/^[ \t]+/, ''));
 });
 
 pinButton.addEventListener('click', async () => {
@@ -1006,7 +1059,6 @@ document.getElementById('settingsCloseButton').addEventListener('click', () => {
 
 document.getElementById('settingsSaveButton').addEventListener('click', async () => {
   await saveSettings();
-  previewEditor.value = applyTextTransforms(previewEditor.value);
   await saveCurrentEntry();
   settingsModal.hidden = true;
 });
@@ -1044,8 +1096,13 @@ entryContextMenu.addEventListener('click', (event) => {
   event.stopPropagation();
 });
 
+transformMenu.addEventListener('click', (event) => {
+  event.stopPropagation();
+});
+
 document.addEventListener('click', () => {
   hideEntryContextMenu();
+  hideTransformMenu();
 });
 
 previewEditor.addEventListener('keydown', (event) => {
@@ -1165,6 +1222,7 @@ document.addEventListener(
 
 entryPane.addEventListener('scroll', () => {
   hideEntryContextMenu();
+  hideTransformMenu();
   const distanceFromBottom = entryPane.scrollHeight - entryPane.scrollTop - entryPane.clientHeight;
   if (distanceFromBottom < 160 && state.hasMoreEntries && !state.isLoadingEntries) {
     loadEntries();
@@ -1173,6 +1231,7 @@ entryPane.addEventListener('scroll', () => {
 
 window.addEventListener('resize', () => {
   hideEntryContextMenu();
+  hideTransformMenu();
 });
 
 document.addEventListener('keydown', (event) => {
@@ -1185,6 +1244,10 @@ document.addEventListener('keydown', (event) => {
   }
 
   if (event.key === 'Escape') {
+    if (!transformMenu.hidden) {
+      hideTransformMenu();
+      return;
+    }
     if (!entryContextMenu.hidden) {
       hideEntryContextMenu();
       return;
@@ -1196,6 +1259,17 @@ document.addEventListener('keydown', (event) => {
   const canNavigateEntries =
     !isInputMethodComposing(event) &&
     (!isEditableKeyboardTarget(event.target) || event.target === searchInput);
+
+  if (
+    (event.key === 'Delete' || event.key === 'Backspace') &&
+    event.metaKey &&
+    !isInputMethodComposing(event) &&
+    settingsModal.hidden
+  ) {
+    event.preventDefault();
+    deleteEntry(selectedEntry(), { confirmProtected: true });
+    return;
+  }
 
   if (event.key === 'ArrowDown' && canNavigateEntries) {
     event.preventDefault();
