@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, nativeImage, systemPreferences } = require('electron');
+const { app, BrowserWindow, clipboard, globalShortcut, ipcMain, nativeImage, screen, systemPreferences } = require('electron');
 const { execFile } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
@@ -16,6 +16,7 @@ const libnut =
     : null;
 
 let mainWindow;
+const desktopWindows = new Map();
 let entries = [];
 let lastClipboardText = '';
 let lastClipboardImageHash = '';
@@ -945,6 +946,93 @@ function createWindow() {
   });
 }
 
+function desktopWindowSize(entry, displayText) {
+  if (entry.contentType === 'Image') {
+    const sourceWidth = Math.max(1, Number(entry.width) || 520);
+    const sourceHeight = Math.max(1, Number(entry.height) || 360);
+    const { width: workWidth, height: workHeight } = screen.getDisplayNearestPoint(
+      screen.getCursorScreenPoint()
+    ).workAreaSize;
+    const maxWidth = Math.min(960, workWidth * 0.9);
+    const maxHeight = Math.min(720, workHeight * 0.9);
+    const scale = Math.min(1, maxWidth / sourceWidth, maxHeight / sourceHeight);
+    return {
+      width: Math.max(1, Math.round(sourceWidth * scale)),
+      height: Math.max(1, Math.round(sourceHeight * scale))
+    };
+  }
+
+  const lines = String(displayText ?? entry.text ?? '').split('\n');
+  const horizontalPadding = 32;
+  const lineHeight = 22;
+  let longestLineWidth = 0;
+  const lineWidths = [];
+  for (const line of lines) {
+    let lineWidth = 0;
+    for (const character of line) {
+      lineWidth += character.codePointAt(0) <= 0x7f ? 8.5 : 14;
+    }
+    lineWidths.push(lineWidth);
+    longestLineWidth = Math.max(longestLineWidth, lineWidth);
+  }
+
+  const width = Math.round(Math.min(760, Math.max(240, longestLineWidth + horizontalPadding)));
+  const contentWidth = width - horizontalPadding;
+  let visualLineCount = 0;
+  for (const lineWidth of lineWidths) {
+    visualLineCount += Math.max(1, Math.ceil(lineWidth / contentWidth));
+  }
+
+  return {
+    width,
+    height: Math.min(640, Math.max(100, visualLineCount * lineHeight + 32))
+  };
+}
+
+function createDesktopWindow(entry, displayText) {
+  const token = crypto.randomUUID();
+  const size = desktopWindowSize(entry, displayText);
+  const desktopWindow = new BrowserWindow({
+    ...size,
+    minWidth: entry.contentType === 'Image' ? 1 : 160,
+    minHeight: entry.contentType === 'Image' ? 1 : 80,
+    show: false,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    roundedCorners: false,
+    useContentSize: true,
+    alwaysOnTop: true,
+    visibleOnAllWorkspaces: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'desktop-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  desktopWindows.set(token, {
+    window: desktopWindow,
+    content: {
+      title: entry.note || entry.title || 'GoodCopy Reference',
+      contentType: entry.contentType,
+      text: entry.contentType === 'Text' ? String(displayText ?? entry.text ?? '') : '',
+      imageUrl: entry.contentType === 'Image' && entry.imagePath ? pathToFileURL(entry.imagePath).href : null,
+      darkMode: Boolean(settings.darkMode)
+    }
+  });
+
+  desktopWindow.setAlwaysOnTop(true, 'floating');
+  desktopWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (entry.contentType === 'Image' && entry.width && entry.height) {
+    desktopWindow.setAspectRatio(entry.width / entry.height);
+  }
+  desktopWindow.once('ready-to-show', () => desktopWindow.showInactive());
+  desktopWindow.on('closed', () => desktopWindows.delete(token));
+  desktopWindow.loadFile(path.join(__dirname, 'renderer', 'desktop.html'), { query: { token } });
+  return desktopWindow;
+}
+
 async function captureActiveWindow() {
   if (process.platform !== 'darwin') return null;
   try {
@@ -1293,6 +1381,38 @@ ipcMain.handle('entries:copy', async (_event, id) => {
   clipboard.writeText(entry.text);
   lastClipboardText = entry.text;
   return true;
+});
+
+ipcMain.handle('desktop:pin', (_event, payload) => {
+  const entry = entries.find((item) => item.id === payload?.id);
+  if (!entry) return { ok: false };
+  createDesktopWindow(entry, payload.displayText);
+  mainWindow?.hide();
+  return { ok: true };
+});
+
+ipcMain.handle('desktop:content', (_event, token) => {
+  return desktopWindows.get(String(token || ''))?.content || null;
+});
+
+function desktopWindowForSender(sender) {
+  for (const record of desktopWindows.values()) {
+    if (record.window.webContents === sender) return record.window;
+  }
+  return null;
+}
+
+ipcMain.handle('desktop:drag-start', (event) => {
+  const desktopWindow = desktopWindowForSender(event.sender);
+  if (!desktopWindow) return null;
+  const [x, y] = desktopWindow.getPosition();
+  return { x, y };
+});
+
+ipcMain.on('desktop:drag-move', (event, position) => {
+  const desktopWindow = desktopWindowForSender(event.sender);
+  if (!desktopWindow || !Number.isFinite(position?.x) || !Number.isFinite(position?.y)) return;
+  desktopWindow.setPosition(Math.round(position.x), Math.round(position.y), false);
 });
 
 ipcMain.handle('window:hide', () => {

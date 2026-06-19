@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('goodcopy', {
   clearUntaggedEntries: () => ipcRenderer.invoke('entries:clear-untagged'),
   pasteEntry: (entry) => ipcRenderer.invoke('entries:paste', entry),
   copyEntry: (id) => ipcRenderer.invoke('entries:copy', id),
+  pinEntryToDesktop: (entry) => ipcRenderer.invoke('desktop:pin', entry),
   getStorageUsage: () => ipcRenderer.invoke('storage:usage'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (settings) => ipcRenderer.invoke('settings:update', settings),

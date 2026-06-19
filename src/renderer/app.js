@@ -527,6 +527,18 @@ async function pasteSelectedEntry() {
   });
 }
 
+async function pinSelectedEntryToDesktop() {
+  const entry = selectedEntry();
+  if (!entry) return;
+  const displayText =
+    entry.contentType === 'Text'
+      ? entry.masked
+        ? previewEditor.value
+        : applyTextTransforms(previewEditor.value)
+      : '';
+  await window.goodcopy.pinEntryToDesktop({ id: entry.id, displayText });
+}
+
 function hideEntryContextMenu() {
   contextMenuEntryId = null;
   entryContextMenu.hidden = true;
@@ -720,8 +732,13 @@ function renderEntries() {
       if (event.key === 'Enter') {
         event.preventDefault();
         event.stopPropagation();
+        if (event.repeat) return;
         await selectEntry(entry);
-        pasteSelectedEntry();
+        if (event.shiftKey) {
+          pinSelectedEntryToDesktop();
+        } else {
+          pasteSelectedEntry();
+        }
       }
     });
     entryList.append(item);
@@ -1247,12 +1264,17 @@ searchInput.addEventListener('keydown', async (event) => {
   if (event.key === 'Enter' && !isInputMethodComposing(event)) {
     event.preventDefault();
     event.stopPropagation();
+    if (event.repeat) return;
     if (searchTimer) {
       clearTimeout(searchTimer);
       searchTimer = null;
       await loadEntries({ reset: true });
     }
-    pasteSelectedEntry();
+    if (event.shiftKey) {
+      pinSelectedEntryToDesktop();
+    } else {
+      pasteSelectedEntry();
+    }
   }
 });
 typeFilter.addEventListener('change', async () => {
@@ -1337,6 +1359,18 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'ArrowUp' && canNavigateEntries) {
     event.preventDefault();
     selectEntryByOffset(-1);
+    return;
+  }
+
+  if (
+    event.key === 'Enter' &&
+    event.shiftKey &&
+    !event.repeat &&
+    !isInputMethodComposing(event) &&
+    settingsModal.hidden
+  ) {
+    event.preventDefault();
+    pinSelectedEntryToDesktop();
     return;
   }
 
