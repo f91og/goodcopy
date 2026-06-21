@@ -14,6 +14,7 @@ const ENTRY_PAGE_SIZE = 50;
 const entryList = document.getElementById('entryList');
 const entryPane = document.querySelector('.entry-pane');
 const entryLoadStatus = document.getElementById('entryLoadStatus');
+const entryScrollIndicator = document.getElementById('entryScrollIndicator');
 const searchInput = document.getElementById('searchInput');
 const tagSuggestions = document.getElementById('tagSuggestions');
 const typeFilter = document.getElementById('typeFilter');
@@ -29,6 +30,7 @@ const transformButton = document.getElementById('transformButton');
 const transformOneLineButton = document.getElementById('transformOneLineButton');
 const transformRemoveBlankLinesButton = document.getElementById('transformRemoveBlankLinesButton');
 const transformTrimLeadingSpacesButton = document.getElementById('transformTrimLeadingSpacesButton');
+const transformWrapButton = document.getElementById('transformWrapButton');
 const transformMaskButton = document.getElementById('transformMaskButton');
 const previewEditor = document.getElementById('previewEditor');
 const imagePreview = document.getElementById('imagePreview');
@@ -65,6 +67,7 @@ const quitAppButton = document.getElementById('quitAppButton');
 const accessibilityButton = document.getElementById('accessibilityButton');
 const accessibilityStatus = document.getElementById('accessibilityStatus');
 const storageUsage = document.getElementById('storageUsage');
+const footerShortcutHints = document.querySelectorAll('.footer-shortcut-hint');
 let isNoteInputComposing = false;
 let isTagInputComposing = false;
 let isTextCompositionActive = false;
@@ -73,13 +76,76 @@ let searchTimer;
 let previewSaveTimer;
 let previewDirty = false;
 let contextMenuEntryId = null;
+let entryContextMenuScrollTop = 0;
 let entryContextMenuOpenedAt = 0;
+let pendingContextGeneratedClick = null;
+let entryContextMenuScrollCloseTimer;
+let entryPaneScrollEndTimer;
+let entryScrollIndicatorFrame;
 let suppressTagSuggestions = false;
+let previewWrapEnabled = false;
 const PREVIEW_SAVE_DELAY_MS = 500;
 const PANE_WIDTH_STORAGE_KEY = 'goodcopy.entryPaneWidth';
+const PREVIEW_WRAP_STORAGE_KEY = 'goodcopy.previewWrap';
 const DEFAULT_ENTRY_PANE_RATIO = 0.38;
 const MIN_ENTRY_PANE_WIDTH = 220;
 const MIN_DETAIL_PANE_WIDTH = 320;
+const ENTRY_CONTEXT_MENU_WIDTH = rootCssPixelValue('--entry-context-menu-width');
+const ENTRY_CONTEXT_MENU_HEIGHT = rootCssPixelValue('--entry-context-menu-height');
+const ENTRY_CONTEXT_MENU_SCROLL_TOLERANCE = 8;
+const ENTRY_CONTEXT_MENU_GESTURE_GRACE_MS = 450;
+const ENTRY_CONTEXT_MENU_CLICK_SUPPRESSION_MS = 200;
+const ENTRY_CONTEXT_MENU_CLICK_DISTANCE = 8;
+
+function rootCssPixelValue(propertyName) {
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(propertyName));
+  if (!Number.isFinite(value)) throw new Error(`Invalid CSS pixel value for ${propertyName}`);
+  return value;
+}
+
+function afterNextPaint(callback) {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      Promise.resolve()
+        .then(callback)
+        .catch((error) => console.error('Deferred UI update failed:', error));
+    });
+  });
+}
+
+function setPreviewWrap(enabled, persist = false) {
+  previewWrapEnabled = Boolean(enabled);
+  previewEditor.wrap = previewWrapEnabled ? 'soft' : 'off';
+  previewEditor.classList.toggle('wrap-enabled', previewWrapEnabled);
+  if (persist) localStorage.setItem(PREVIEW_WRAP_STORAGE_KEY, String(previewWrapEnabled));
+}
+
+function updateEntryScrollIndicator() {
+  const maximumScroll = entryPane.scrollHeight - entryPane.clientHeight;
+  if (maximumScroll <= 0) {
+    entryScrollIndicator.hidden = true;
+    entryScrollIndicator.classList.remove('visible');
+    return;
+  }
+
+  const paneBounds = entryPane.getBoundingClientRect();
+  const trackPadding = 6;
+  const trackHeight = Math.max(1, entryPane.clientHeight - trackPadding * 2);
+  const thumbHeight = Math.max(32, trackHeight * (entryPane.clientHeight / entryPane.scrollHeight));
+  const travel = Math.max(0, trackHeight - thumbHeight);
+  entryScrollIndicator.hidden = false;
+  entryScrollIndicator.style.left = `${paneBounds.right - 6}px`;
+  entryScrollIndicator.style.top = `${paneBounds.top + trackPadding + travel * (entryPane.scrollTop / maximumScroll)}px`;
+  entryScrollIndicator.style.height = `${thumbHeight}px`;
+}
+
+function scheduleEntryScrollIndicatorUpdate() {
+  if (entryScrollIndicatorFrame) return;
+  entryScrollIndicatorFrame = requestAnimationFrame(() => {
+    entryScrollIndicatorFrame = null;
+    updateEntryScrollIndicator();
+  });
+}
 
 function clampEntryPaneWidth(width) {
   const availableWidth = contentPane.clientWidth - paneResizeHandle.offsetWidth;
@@ -94,6 +160,7 @@ function setEntryPaneWidth(width, persist = false) {
   if (persist) {
     localStorage.setItem(PANE_WIDTH_STORAGE_KEY, String(Math.round(nextWidth)));
   }
+  scheduleEntryScrollIndicatorUpdate();
 }
 
 function restoreEntryPaneWidth() {
@@ -323,9 +390,41 @@ function entryById(id) {
   return state.entries.find((entry) => entry.id === id) || null;
 }
 
+function entryItemForPointerEvent(event) {
+  const directItem = event.target.closest?.('.entry-item');
+  if (directItem || !entryPane.contains(event.target)) return directItem || null;
+  const listBounds = entryList.getBoundingClientRect();
+  return document.elementFromPoint(listBounds.left + 4, event.clientY)?.closest?.('.entry-item') || null;
+}
+
+function isContextGeneratedClick(event) {
+  const pendingClick = pendingContextGeneratedClick;
+  if (!pendingClick) return false;
+  if (performance.now() > pendingClick.expiresAt) {
+    pendingContextGeneratedClick = null;
+    return false;
+  }
+
+  const distance = Math.hypot(event.clientX - pendingClick.x, event.clientY - pendingClick.y);
+  pendingContextGeneratedClick = null;
+  return distance <= ENTRY_CONTEXT_MENU_CLICK_DISTANCE;
+}
+
 function isEditableKeyboardTarget(target) {
   if (!(target instanceof HTMLElement)) return false;
   return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
+}
+
+function updateFooterShortcutHints() {
+  const editingEntry = isEditingEntryDetails();
+  footerShortcutHints.forEach((hint) => {
+    hint.classList.toggle('disabled', editingEntry);
+    hint.setAttribute('aria-disabled', String(editingEntry));
+  });
+}
+
+function isEditingEntryDetails() {
+  return [previewEditor, tagInput, noteInput].includes(document.activeElement);
 }
 
 function isInputMethodComposing(event) {
@@ -393,11 +492,14 @@ function setTypeFilter(value, { notify = false } = {}) {
   if (notify) typeFilter.dispatchEvent(new Event('change'));
 }
 
+function shouldShowTagSuggestions() {
+  if (document.activeElement !== searchInput) return false;
+  return searchInput.value.trim().startsWith('#') || typeFilter.value === 'note';
+}
+
 function renderTagSuggestions() {
   tagSuggestions.innerHTML = '';
-  const isExplicitTagQuery = searchInput.value.trim().startsWith('#');
-  const shouldSuggestForNoted = typeFilter.value === 'note' && document.activeElement === searchInput;
-  if (suppressTagSuggestions || (!isExplicitTagQuery && !shouldSuggestForNoted)) {
+  if (suppressTagSuggestions || !shouldShowTagSuggestions()) {
     tagSuggestions.hidden = true;
     return;
   }
@@ -567,6 +669,7 @@ async function pinSelectedEntryToDesktop() {
 }
 
 function hideEntryContextMenu() {
+  clearTimeout(entryContextMenuScrollCloseTimer);
   contextMenuEntryId = null;
   entryContextMenu.hidden = true;
 }
@@ -595,20 +698,27 @@ function showTransformMenu() {
   transformOneLineButton.disabled = transformationsDisabled;
   transformRemoveBlankLinesButton.disabled = transformationsDisabled;
   transformTrimLeadingSpacesButton.disabled = transformationsDisabled;
+  transformWrapButton.disabled = !entry || entry.contentType === 'Image';
+  transformWrapButton.textContent = previewWrapEnabled ? '取消 Wrap' : 'Wrap 内容';
   transformMaskButton.textContent = entry?.masked ? '取消遮掩' : '遮掩内容';
   transformMaskButton.disabled = !entry || entry.contentType === 'Image';
   positionFloatingMenu(transformMenu, transformButton);
 }
 
 function positionEntryContextMenu(x, y) {
-  entryContextMenu.hidden = false;
-  entryContextMenuOpenedAt = performance.now();
-
-  const { width, height } = entryContextMenu.getBoundingClientRect();
-  const left = Math.min(x, window.innerWidth - width - 8);
-  const top = Math.min(y, window.innerHeight - height - 8);
+  clearTimeout(entryContextMenuScrollCloseTimer);
+  const left = Math.min(x, window.innerWidth - ENTRY_CONTEXT_MENU_WIDTH - 8);
+  const top = Math.min(y, window.innerHeight - ENTRY_CONTEXT_MENU_HEIGHT - 8);
   entryContextMenu.style.left = `${Math.max(8, left)}px`;
   entryContextMenu.style.top = `${Math.max(8, top)}px`;
+  entryContextMenu.hidden = false;
+  entryContextMenuScrollTop = entryPane.scrollTop;
+  entryContextMenuOpenedAt = performance.now();
+  pendingContextGeneratedClick = {
+    x,
+    y,
+    expiresAt: entryContextMenuOpenedAt + ENTRY_CONTEXT_MENU_CLICK_SUPPRESSION_MS
+  };
 }
 
 function showEntryContextMenu(event, entry) {
@@ -625,15 +735,13 @@ function showEntryContextMenu(event, entry) {
   positionEntryContextMenu(event.clientX, event.clientY);
 
   if (entry.id === state.selectedId) return;
-  requestAnimationFrame(() => {
-    requestAnimationFrame(async () => {
-      if (contextMenuEntryId !== entry.id) return;
-      if (previewDirty) await flushCurrentEntry();
-      if (contextMenuEntryId !== entry.id) return;
-      setDraftFromEntry(entry);
-      entryList.querySelector('.entry-item.selected')?.classList.remove('selected');
-      entryList.querySelector(`[data-id="${entry.id}"]`)?.classList.add('selected');
-    });
+  afterNextPaint(async () => {
+    if (contextMenuEntryId !== entry.id) return;
+    if (previewDirty) await flushCurrentEntry();
+    if (contextMenuEntryId !== entry.id) return;
+    setDraftFromEntry(entry);
+    entryList.querySelector('.entry-item.selected')?.classList.remove('selected');
+    entryList.querySelector(`[data-id="${entry.id}"]`)?.classList.add('selected');
   });
 }
 
@@ -662,8 +770,6 @@ async function deleteEntry(entry = selectedEntry(), { confirmProtected = true } 
   await window.goodcopy.deleteEntry(entry.id);
   state.selectedId = selectedIdAfterDelete;
   await loadEntries({ reset: true, selectedId: selectedIdAfterDelete });
-  setDraftFromEntry(selectedEntry());
-  renderEntries();
 }
 
 async function toggleEntryPinned(entry = selectedEntry()) {
@@ -687,22 +793,14 @@ async function toggleEntryPinned(entry = selectedEntry()) {
     masked: Boolean(entry.masked)
   });
 
-  if (updated) {
-    state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
-    setDraftFromEntry(updated);
-    renderEntries();
-  }
+  return updated;
 }
 
 async function toggleEntryNote(entry = selectedEntry()) {
   if (!entry) return;
   const updated = await window.goodcopy.updateEntry({ id: entry.id, isNote: !entry.isNote });
-  if (updated) {
-    const index = state.entries.findIndex((item) => item.id === updated.id);
-    if (index !== -1) state.entries[index] = updated;
-    renderEntries();
-  }
   hideEntryContextMenu();
+  return updated;
 }
 
 function showEntriesWithSameTag(entry = selectedEntry()) {
@@ -736,6 +834,7 @@ function renderEntries() {
     empty.textContent = state.isLoadingEntries ? '正在加载...' : '没有匹配的剪贴板记录';
     entryList.append(empty);
     setDraftFromEntry(null);
+    scheduleEntryScrollIndicatorUpdate();
     return;
   }
 
@@ -783,14 +882,6 @@ function renderEntries() {
       hideEntryContextMenu();
       await selectEntry(entry);
     });
-    item.addEventListener('contextmenu', (event) => {
-      showEntryContextMenu(event, entry);
-    });
-    item.addEventListener('pointerdown', (event) => {
-      if (event.button === 2 || (event.button === 0 && event.ctrlKey)) {
-        showEntryContextMenu(event, entry);
-      }
-    });
     item.addEventListener('keydown', async (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -806,6 +897,7 @@ function renderEntries() {
     });
     entryList.append(item);
   }
+  scheduleEntryScrollIndicatorUpdate();
 }
 
 function renderEntryLoadStatus() {
@@ -880,19 +972,15 @@ async function saveCurrentEntry({ applyTransforms = true } = {}) {
     pinned: Boolean(entry.pinned),
     masked: Boolean(entry.masked)
   });
-  if (updated) {
-    state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
-    if (state.selectedId === updated.id) {
-      if (!isText || previewEditor.value === textToSave) {
-        previewDirty = false;
-      }
-      state.draftTags = Array.isArray(updated.tags) ? [...updated.tags] : [];
-      state.draftNote = updated.note || '';
-      tagInput.value = '';
-      noteInput.value = state.draftNote;
-      noteInput.readOnly = false;
+  if (updated && state.selectedId === updated.id) {
+    if (!isText || previewEditor.value === textToSave) {
+      previewDirty = false;
     }
-    renderEntries();
+    state.draftTags = Array.isArray(updated.tags) ? [...updated.tags] : [];
+    state.draftNote = updated.note || '';
+    tagInput.value = '';
+    noteInput.value = state.draftNote;
+    noteInput.readOnly = false;
   }
   return updated;
 }
@@ -946,7 +1034,6 @@ async function loadEntries({ reset = false, preserveSelection = false, selectedI
         : null;
       entryPane.scrollTop = 0;
     }
-    renderEntries();
   } finally {
     if (requestId === entryLoadRequestId) {
       state.isLoadingEntries = false;
@@ -983,6 +1070,11 @@ transformTrimLeadingSpacesButton.addEventListener('click', () => {
   applyPreviewTransform((text) => text.replace(/^[ \t]+/, ''));
 });
 
+transformWrapButton.addEventListener('click', () => {
+  setPreviewWrap(!previewWrapEnabled, true);
+  hideTransformMenu();
+});
+
 transformMaskButton.addEventListener('click', async () => {
   const entry = selectedEntry();
   if (!entry || entry.contentType === 'Image') return;
@@ -998,9 +1090,7 @@ transformMaskButton.addEventListener('click', async () => {
   });
   if (!updated) return;
 
-  state.entries = state.entries.map((item) => (item.id === updated.id ? updated : item));
   setDraftFromEntry(updated);
-  renderEntries();
 });
 
 pinButton.addEventListener('click', async () => {
@@ -1224,6 +1314,16 @@ transformMenu.addEventListener('click', (event) => {
   event.stopPropagation();
 });
 
+document.addEventListener(
+  'click',
+  (event) => {
+    if (!isContextGeneratedClick(event)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  },
+  true
+);
+
 document.addEventListener('click', () => {
   hideEntryContextMenu();
   hideTransformMenu();
@@ -1363,8 +1463,30 @@ document.addEventListener(
 );
 
 entryPane.addEventListener('scroll', () => {
-  if (performance.now() - entryContextMenuOpenedAt > 250) {
-    hideEntryContextMenu();
+  scheduleEntryScrollIndicatorUpdate();
+  entryScrollIndicator.classList.add('visible');
+  clearTimeout(entryPaneScrollEndTimer);
+  entryPaneScrollEndTimer = setTimeout(() => {
+    entryScrollIndicator.classList.remove('visible');
+  }, 700);
+  if (!entryContextMenu.hidden) {
+    const scrolledPastTolerance =
+      Math.abs(entryPane.scrollTop - entryContextMenuScrollTop) > ENTRY_CONTEXT_MENU_SCROLL_TOLERANCE;
+    if (scrolledPastTolerance) {
+      const remainingGrace = Math.max(
+        0,
+        ENTRY_CONTEXT_MENU_GESTURE_GRACE_MS - (performance.now() - entryContextMenuOpenedAt)
+      );
+      clearTimeout(entryContextMenuScrollCloseTimer);
+      entryContextMenuScrollCloseTimer = setTimeout(() => {
+        if (
+          !entryContextMenu.hidden &&
+          Math.abs(entryPane.scrollTop - entryContextMenuScrollTop) > ENTRY_CONTEXT_MENU_SCROLL_TOLERANCE
+        ) {
+          hideEntryContextMenu();
+        }
+      }, remainingGrace);
+    }
   }
   hideTransformMenu();
   const distanceFromBottom = entryPane.scrollHeight - entryPane.scrollTop - entryPane.clientHeight;
@@ -1373,9 +1495,21 @@ entryPane.addEventListener('scroll', () => {
   }
 });
 
+entryPane.addEventListener('contextmenu', (event) => {
+  const itemAtPointer = entryItemForPointerEvent(event);
+  const entry = entryById(itemAtPointer?.dataset.id);
+  if (entry) showEntryContextMenu(event, entry);
+});
+
 window.addEventListener('resize', () => {
   hideEntryContextMenu();
   hideTransformMenu();
+  scheduleEntryScrollIndicatorUpdate();
+});
+
+detailPane.addEventListener('focusin', updateFooterShortcutHints);
+detailPane.addEventListener('focusout', () => {
+  requestAnimationFrame(updateFooterShortcutHints);
 });
 
 document.addEventListener('keydown', (event) => {
@@ -1387,11 +1521,7 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
-  const isEditingEntryDetails =
-    document.activeElement === previewEditor ||
-    document.activeElement === tagInput ||
-    document.activeElement === noteInput;
-  if (isEditingEntryDetails) return;
+  if (isEditingEntryDetails()) return;
 
   if (event.key === 'Escape') {
     if (!transformMenu.hidden) {
@@ -1449,10 +1579,7 @@ document.addEventListener('keydown', (event) => {
     event.key === 'Enter' &&
     !event.shiftKey &&
     !isInputMethodComposing(event) &&
-    settingsModal.hidden &&
-    document.activeElement !== previewEditor &&
-    document.activeElement !== tagInput &&
-    document.activeElement !== noteInput
+    settingsModal.hidden
   ) {
     event.preventDefault();
     pasteSelectedEntry();
@@ -1460,7 +1587,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 window.goodcopy.onEntriesChanged((change) => {
-  if (searchInput.value.trim().startsWith('#') || typeFilter.value === 'note') {
+  if (shouldShowTagSuggestions()) {
     refreshTagSuggestions();
   }
   if (change?.type === 'updated' && change.entry) {
@@ -1504,6 +1631,7 @@ window.goodcopy.onPanelOpened(async () => {
 
 async function boot() {
   restoreEntryPaneWidth();
+  setPreviewWrap(localStorage.getItem(PREVIEW_WRAP_STORAGE_KEY) === 'true');
   setTypeFilter('all');
   applySettingsToForm(await window.goodcopy.getSettings());
   await loadEntries({ reset: true });

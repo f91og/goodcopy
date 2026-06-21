@@ -24,6 +24,8 @@
   --settings-row-height: 40px;
   --settings-control-width: 180px;
   --settings-control-height: 34px;
+  --entry-context-menu-width: 220px;
+  --entry-context-menu-height: 98px;
 }
 
 * {
@@ -357,20 +359,26 @@ textarea {
   min-width: 0;
   overflow: auto;
   padding: var(--pane-padding-top) 10px 14px;
-  scrollbar-gutter: stable;
+  scrollbar-width: none;
 }
 
 .entry-pane::-webkit-scrollbar {
-  width: 6px;
+  display: none;
 }
 
-.entry-pane::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.entry-pane::-webkit-scrollbar-thumb {
+.entry-scroll-indicator {
+  position: fixed;
+  z-index: 15;
+  width: 3px;
   border-radius: 999px;
-  background: rgba(127, 127, 127, 0.5);
+  background: rgba(127, 127, 127, 0.62);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.entry-scroll-indicator.visible {
+  opacity: 1;
 }
 
 .pane-resize-handle {
@@ -511,6 +519,20 @@ textarea {
   -webkit-app-region: no-drag;
 }
 
+#entryContextMenu {
+  width: var(--entry-context-menu-width);
+  min-width: var(--entry-context-menu-width);
+  height: var(--entry-context-menu-height);
+  box-sizing: border-box;
+}
+
+#entryContextMenu button {
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .transform-menu {
   width: max-content;
   min-width: 0;
@@ -581,6 +603,11 @@ textarea {
   font-family: "SF Mono", "SFMono-Regular", "PingFang SC", "Hiragino Sans GB", Menlo, Consolas, monospace;
   font-size: var(--preview-size);
   line-height: 1.75;
+}
+
+.preview-editor.wrap-enabled {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .image-preview {
@@ -785,6 +812,12 @@ textarea {
   line-height: 1.05;
   text-align: right;
   white-space: nowrap;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.footer-shortcut-hint.disabled {
+  color: #999;
+  opacity: 0.32;
 }
 
 .footer-shortcut-hint span:first-child {
@@ -1166,4 +1199,8 @@ textarea {
 
 :root.dark-mode * {
   scrollbar-color: #555 #202020;
+}
+
+:root.dark-mode .entry-scroll-indicator {
+  background: rgba(190, 190, 190, 0.55);
 }

@@ -530,6 +530,11 @@ function toRendererEntry(entry) {
   };
 }
 
+function entrySortTimestamp(value) {
+  const timestamp = Date.parse(value || '');
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function queryRendererEntries(options = {}) {
   const offset = Math.max(0, Number.parseInt(options.offset, 10) || 0);
   const limit = Math.min(100, Math.max(1, Number.parseInt(options.limit, 10) || 50));
@@ -553,7 +558,13 @@ function queryRendererEntries(options = {}) {
         (filter === 'unnote' && !entry.isNote);
       return matchesQuery && matchesType;
     })
-    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+    .sort((a, b) => {
+      const pinnedDifference = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+      if (pinnedDifference) return pinnedDifference;
+      return a.pinned && b.pinned
+        ? entrySortTimestamp(b.pinnedAt) - entrySortTimestamp(a.pinnedAt)
+        : entrySortTimestamp(b.listOrderAt) - entrySortTimestamp(a.listOrderAt);
+    });
   const total = matchedEntries.length;
 
   return {
@@ -601,9 +612,21 @@ function parseStoreEntries(raw) {
   return parsed.entries;
 }
 
+function validEntryIsoDate(value) {
+  const timestamp = Date.parse(value || '');
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : '';
+}
+
+function entryDateFromId(id) {
+  const timestamp = Number(String(id || '').match(/^(\d{13})(?:-|$)/)?.[1]);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : '';
+}
+
 function loadStoreEntries(raw) {
-  let migratedLegacyNotes = false;
+  let migratedStoreEntries = false;
   entries = parseStoreEntries(raw).map((entry) => {
+    const createdAt = validEntryIsoDate(entry.createdAt) || entryDateFromId(entry.id) || nowIso();
+    const updatedAt = validEntryIsoDate(entry.updatedAt) || createdAt;
     const normalizedEntry = {
       ...entry,
       contentType: entry.contentType || 'Text',
@@ -612,15 +635,24 @@ function loadStoreEntries(raw) {
       noteSource: entry.noteSource || '',
       isNote: Boolean(entry.isNote),
       pinned: Boolean(entry.pinned),
-      masked: Boolean(entry.masked)
+      pinnedAt: validEntryIsoDate(entry.pinnedAt),
+      listOrderAt: validEntryIsoDate(entry.listOrderAt),
+      masked: Boolean(entry.masked),
+      createdAt,
+      updatedAt
     };
+    migratedStoreEntries ||=
+      entry.createdAt !== createdAt ||
+      entry.updatedAt !== updatedAt ||
+      entry.pinnedAt !== normalizedEntry.pinnedAt ||
+      entry.listOrderAt !== normalizedEntry.listOrderAt;
     const migratedEntry = migrateLegacyAutoNote(normalizedEntry);
-    migratedLegacyNotes ||= migratedEntry !== normalizedEntry;
+    migratedStoreEntries ||= migratedEntry !== normalizedEntry;
     return migratedEntry;
   });
   lastClipboardText = entries.find((entry) => entry.contentType === 'Text')?.text || '';
   lastClipboardImageHash = entries.find((entry) => entry.contentType === 'Image')?.imageHash || '';
-  return migratedLegacyNotes;
+  return migratedStoreEntries;
 }
 
 async function preserveCorruptStore() {
@@ -890,6 +922,8 @@ function addClipboardText(text, source = 'Clipboard') {
     tags: existing?.tags || [],
     isNote: Boolean(existing?.isNote),
     pinned: Boolean(existing?.pinned),
+    pinnedAt: existing?.pinnedAt || '',
+    listOrderAt: nowIso(),
     masked: Boolean(existing?.masked),
     source: existing?.source || source,
     contentType: 'Text',
@@ -941,6 +975,8 @@ async function addClipboardImage(image, source = 'Clipboard') {
     tags: existing?.tags || [],
     isNote: Boolean(existing?.isNote),
     pinned: Boolean(existing?.pinned),
+    pinnedAt: existing?.pinnedAt || '',
+    listOrderAt: nowIso(),
     masked: Boolean(existing?.masked),
     source: existing?.source || source,
     contentType: 'Image',
@@ -1324,6 +1360,8 @@ ipcMain.handle('entries:update', async (_event, nextEntry) => {
 
   const current = entries[index];
   const previousPinned = Boolean(current.pinned);
+  const nextPinned = typeof nextEntry.pinned === 'boolean' ? nextEntry.pinned : previousPinned;
+  const updatedAt = nowIso();
   const text =
     current.contentType === 'Text' && typeof nextEntry.text === 'string'
       ? normalizeText(nextEntry.text)
@@ -1336,9 +1374,11 @@ ipcMain.handle('entries:update', async (_event, nextEntry) => {
     noteSource: typeof nextEntry.note === 'string' ? 'manual' : current.noteSource || '',
     tags: Array.isArray(nextEntry.tags) ? nextEntry.tags : entries[index].tags,
     isNote: typeof nextEntry.isNote === 'boolean' ? nextEntry.isNote : Boolean(current.isNote),
-    pinned: typeof nextEntry.pinned === 'boolean' ? nextEntry.pinned : Boolean(current.pinned),
+    pinned: nextPinned,
+    pinnedAt: !previousPinned && nextPinned ? updatedAt : nextPinned ? current.pinnedAt || '' : '',
+    listOrderAt: previousPinned && !nextPinned ? updatedAt : current.listOrderAt || '',
     masked: typeof nextEntry.masked === 'boolean' ? nextEntry.masked : Boolean(current.masked),
-    updatedAt: nowIso()
+    updatedAt
   };
 
   await writeStore();
