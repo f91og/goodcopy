@@ -19,6 +19,7 @@ const tagSuggestions = document.getElementById('tagSuggestions');
 const typeFilter = document.getElementById('typeFilter');
 const entryContextMenu = document.getElementById('entryContextMenu');
 const contextPinButton = document.getElementById('contextPinButton');
+const contextNoteButton = document.getElementById('contextNoteButton');
 const contextTagButton = document.getElementById('contextTagButton');
 const contextDeleteButton = document.getElementById('contextDeleteButton');
 const transformMenu = document.getElementById('transformMenu');
@@ -53,6 +54,7 @@ const shortcutStatus = document.getElementById('shortcutStatus');
 const shortcutWarning = document.getElementById('shortcutWarning');
 const windowSizeSelect = document.getElementById('windowSizeSelect');
 const lineSeparatorButton = document.getElementById('lineSeparatorButton');
+const retentionMonthsSelect = document.getElementById('retentionMonthsSelect');
 const settingsModal = document.getElementById('settingsModal');
 const settingsTitle = document.getElementById('settingsTitle');
 const generalSettingsBody = document.getElementById('generalSettingsBody');
@@ -61,8 +63,6 @@ const quitAppButton = document.getElementById('quitAppButton');
 const accessibilityButton = document.getElementById('accessibilityButton');
 const accessibilityStatus = document.getElementById('accessibilityStatus');
 const storageUsage = document.getElementById('storageUsage');
-const clearUntaggedButton = document.getElementById('clearUntaggedButton');
-const clearUntaggedStatus = document.getElementById('clearUntaggedStatus');
 let isNoteInputComposing = false;
 let isTagInputComposing = false;
 let isTextCompositionActive = false;
@@ -183,7 +183,8 @@ function readSettingsForm() {
     shortcut: shortcutRecordButton.dataset.shortcut || 'CommandOrControl+P',
     windowSize: windowSizeSelect.value,
     lineSeparator: lineSeparatorButton.dataset.separator || ' ',
-    darkMode: darkModeToggle.checked
+    darkMode: darkModeToggle.checked,
+    retentionMonths: Number(retentionMonthsSelect.value)
   };
 }
 
@@ -221,6 +222,7 @@ function applySettingsToForm(settings) {
   lineSeparatorButton.dataset.separator = lineSeparator;
   lineSeparatorButton.textContent = lineSeparator === ' ' ? 'Space' : lineSeparator;
   lineSeparatorButton.classList.remove('recording');
+  retentionMonthsSelect.value = String(settings.retentionMonths || 3);
   document.documentElement.classList.remove('size-small', 'size-medium', 'size-large');
   document.documentElement.classList.add(`size-${windowSizeSelect.value}`);
   document.documentElement.classList.toggle('dark-mode', darkModeToggle.checked);
@@ -591,6 +593,7 @@ async function showEntryContextMenu(event, entry) {
   const tags = Array.isArray(entry.tags) ? entry.tags : [];
   contextMenuEntryId = entry.id;
   contextPinButton.textContent = entry.pinned ? '取消置顶' : '置顶';
+  contextNoteButton.textContent = entry.isNote ? '取消 Note' : 'Note';
   contextTagButton.textContent = tags[0] ? `显示相同 tag: #${tags[0]}` : '显示相同 tag';
   contextTagButton.disabled = !tags.length;
   positionEntryContextMenu(event.clientX, event.clientY);
@@ -606,7 +609,7 @@ async function showEntryContextMenu(event, entry) {
 
 function entryNeedsDeleteConfirmation(entry) {
   const tags = Array.isArray(entry?.tags) ? entry.tags : [];
-  return tags.length > 0 || Boolean(String(entry?.note || '').trim());
+  return Boolean(entry?.isNote) || tags.length > 0 || Boolean(String(entry?.note || '').trim());
 }
 
 async function deleteEntry(entry = selectedEntry(), { confirmProtected = true } = {}) {
@@ -614,7 +617,7 @@ async function deleteEntry(entry = selectedEntry(), { confirmProtected = true } 
   if (
     confirmProtected &&
     entryNeedsDeleteConfirmation(entry) &&
-    !window.confirm('这个 entry 有 tag 或标题，确认删除吗？')
+    !window.confirm('这个 entry 是 Note，或带有 tag/标题，确认删除吗？')
   ) {
     return;
   }
@@ -659,6 +662,17 @@ async function toggleEntryPinned(entry = selectedEntry()) {
     setDraftFromEntry(updated);
     renderEntries();
   }
+}
+
+async function toggleEntryNote(entry = selectedEntry()) {
+  if (!entry) return;
+  const updated = await window.goodcopy.updateEntry({ id: entry.id, isNote: !entry.isNote });
+  if (updated) {
+    const index = state.entries.findIndex((item) => item.id === updated.id);
+    if (index !== -1) state.entries[index] = updated;
+    renderEntries();
+  }
+  hideEntryContextMenu();
 }
 
 function showEntriesWithSameTag(entry = selectedEntry()) {
@@ -709,8 +723,15 @@ function renderEntries() {
     const textWrap = document.createElement('div');
     const title = document.createElement('div');
     title.className = 'entry-title';
+    if (entry.isNote) {
+      const noteIcon = document.createElement('span');
+      noteIcon.className = 'entry-note-icon';
+      noteIcon.title = 'Note（永久保存）';
+      noteIcon.setAttribute('aria-label', 'Note');
+      title.append(noteIcon);
+    }
     const displayTitle = entry.note || (entry.masked ? maskContent(entry.title) : entry.title);
-    title.textContent = `${entry.pinned ? 'Pin · ' : ''}${displayTitle}`;
+    title.append(document.createTextNode(`${entry.pinned ? 'Pin · ' : ''}${displayTitle}`));
     textWrap.append(title);
 
     if (tags.length) {
@@ -1106,24 +1127,6 @@ accessibilityButton.addEventListener('click', async () => {
   setTimeout(refreshAccessibilityStatus, 600);
 });
 
-clearUntaggedButton.addEventListener('click', async () => {
-  const confirmed = window.confirm('确认删除所有没有 tag 的历史记录？已打 tag 的记录会保留。');
-  if (!confirmed) return;
-
-  clearUntaggedButton.disabled = true;
-  clearUntaggedStatus.textContent = '正在清理...';
-
-  try {
-    const result = await window.goodcopy.clearUntaggedEntries();
-    state.selectedId = null;
-    await loadEntries({ reset: true });
-    storageUsage.textContent = storageText(result.storage);
-    clearUntaggedStatus.textContent = `已清除 ${result.removed} 条 untagged 历史记录。`;
-  } finally {
-    clearUntaggedButton.disabled = false;
-  }
-});
-
 document.getElementById('settingsCloseButton').addEventListener('click', () => {
   if (state.settings) {
     applySettingsToForm(state.settings);
@@ -1134,6 +1137,7 @@ document.getElementById('settingsCloseButton').addEventListener('click', () => {
 document.getElementById('settingsSaveButton').addEventListener('click', async () => {
   await saveSettings();
   await saveCurrentEntry();
+  await refreshStorageUsage();
   settingsModal.hidden = true;
 });
 
@@ -1156,6 +1160,10 @@ document.getElementById('deleteButton').addEventListener('click', async () => {
 
 contextPinButton.addEventListener('click', async () => {
   await toggleEntryPinned(entryById(contextMenuEntryId));
+});
+
+contextNoteButton.addEventListener('click', async () => {
+  await toggleEntryNote(entryById(contextMenuEntryId));
 });
 
 contextTagButton.addEventListener('click', () => {

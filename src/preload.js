@@ -5,7 +5,6 @@ contextBridge.exposeInMainWorld('goodcopy', {
   listTags: () => ipcRenderer.invoke('entries:tags'),
   updateEntry: (entry) => ipcRenderer.invoke('entries:update', entry),
   deleteEntry: (id) => ipcRenderer.invoke('entries:delete', id),
-  clearUntaggedEntries: () => ipcRenderer.invoke('entries:clear-untagged'),
   pasteEntry: (entry) => ipcRenderer.invoke('entries:paste', entry),
   copyEntry: (id) => ipcRenderer.invoke('entries:copy', id),
   pinEntryToDesktop: (entry) => ipcRenderer.invoke('desktop:pin', entry),

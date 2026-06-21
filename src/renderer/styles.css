@@ -387,6 +387,34 @@ textarea {
   font-weight: 650;
 }
 
+.entry-note-icon {
+  position: relative;
+  display: inline-block;
+  width: 10px;
+  height: 13px;
+  margin-right: 7px;
+  border: 1.5px solid currentColor;
+  border-radius: 1px;
+  vertical-align: -2px;
+  box-sizing: border-box;
+}
+
+.entry-note-icon::after {
+  content: '';
+  position: absolute;
+  right: -1.5px;
+  top: -1.5px;
+  width: 4px;
+  height: 4px;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  background: #eeeeee;
+}
+
+.entry-item.selected .entry-note-icon::after {
+  background: #d9d9d9;
+}
+
 .entry-tags {
   margin-top: 4px;
   overflow: hidden;
@@ -913,6 +941,14 @@ textarea {
 
 :root.dark-mode .entry-item {
   color: #ededed;
+}
+
+:root.dark-mode .entry-note-icon::after {
+  background: #1c1c1c;
+}
+
+:root.dark-mode .entry-item.selected .entry-note-icon::after {
+  background: #373737;
 }
 
 :root.dark-mode .icon-button {

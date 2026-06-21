@@ -50,11 +50,15 @@ const DEFAULT_SETTINGS = {
   windowSize: 'medium',
   lineSeparator: ' ',
   darkMode: false,
+  retentionMonths: 3,
   githubStatus: null
 };
 const AI_PROVIDERS = new Set(['none', 'codex', 'claude']);
 const AI_COMMAND_TIMEOUT_MS = 60000;
 const LEGACY_GITHUB_AI_INSTRUCTION = '如果我复制的github的pr链接，请给我在描述的地方加入pr的标题';
+const MIN_RETENTION_MONTHS = 1;
+const MAX_RETENTION_MONTHS = 6;
+const RETENTION_CHECK_MS = 6 * 60 * 60 * 1000;
 
 const WINDOW_SIZES = {
   small: { width: 900, height: 580 },
@@ -78,6 +82,13 @@ function normalizeLineSeparator(separator) {
   const value = String(separator ?? '').trim();
   if (!value || value.toLowerCase() === 'space') return ' ';
   return Array.from(value)[0];
+}
+
+function normalizeRetentionMonths(value) {
+  const months = Number.parseInt(value, 10);
+  return Number.isInteger(months) && months >= MIN_RETENTION_MONTHS && months <= MAX_RETENTION_MONTHS
+    ? months
+    : DEFAULT_SETTINGS.retentionMonths;
 }
 
 function normalizeText(text) {
@@ -599,6 +610,7 @@ function loadStoreEntries(raw) {
       tags: Array.isArray(entry.tags) ? entry.tags : [],
       note: typeof entry.note === 'string' ? entry.note : '',
       noteSource: entry.noteSource || '',
+      isNote: Boolean(entry.isNote),
       pinned: Boolean(entry.pinned),
       masked: Boolean(entry.masked)
     };
@@ -696,6 +708,7 @@ async function readSettings() {
       settings.shortcut = normalizeShortcut(settings.shortcut);
     }
     settings.lineSeparator = normalizeLineSeparator(settings.lineSeparator);
+    settings.retentionMonths = normalizeRetentionMonths(settings.retentionMonths);
   } catch (error) {
     if (error.code !== 'ENOENT') {
       console.error('Failed to read settings:', error);
@@ -817,6 +830,37 @@ async function getStorageUsage() {
   };
 }
 
+function entryRetentionDate(entry) {
+  const timestamp = Date.parse(entry.updatedAt || entry.createdAt || '');
+  return Number.isFinite(timestamp) ? new Date(timestamp) : null;
+}
+
+async function removeExpiredEntries() {
+  const cutoff = new Date();
+  const cutoffDay = cutoff.getDate();
+  cutoff.setDate(1);
+  cutoff.setMonth(cutoff.getMonth() - normalizeRetentionMonths(settings.retentionMonths));
+  const lastDayOfCutoffMonth = new Date(cutoff.getFullYear(), cutoff.getMonth() + 1, 0).getDate();
+  cutoff.setDate(Math.min(cutoffDay, lastDayOfCutoffMonth));
+  const removed = entries.filter((entry) => {
+    if (entry.isNote) return false;
+    const retainedSince = entryRetentionDate(entry);
+    return retainedSince ? retainedSince < cutoff : false;
+  });
+  if (!removed.length) return 0;
+
+  const removedIds = new Set(removed.map((entry) => entry.id));
+  entries = entries.filter((entry) => !removedIds.has(entry.id));
+  await writeStore();
+  await Promise.all(
+    removed.map((entry) =>
+      entry.contentType === 'Image' && entry.imagePath ? fs.unlink(entry.imagePath).catch(() => {}) : null
+    )
+  );
+  emitEntriesChanged();
+  return removed.length;
+}
+
 function addClipboardText(text, source = 'Clipboard') {
   const normalized = clipboardTextKey(text);
   if (!normalized.trim()) return null;
@@ -844,6 +888,7 @@ function addClipboardText(text, source = 'Clipboard') {
     note: existing?.note || '',
     noteSource: existing?.noteSource || '',
     tags: existing?.tags || [],
+    isNote: Boolean(existing?.isNote),
     pinned: Boolean(existing?.pinned),
     masked: Boolean(existing?.masked),
     source: existing?.source || source,
@@ -894,6 +939,7 @@ async function addClipboardImage(image, source = 'Clipboard') {
     note: existing?.note || '',
     noteSource: existing?.noteSource || '',
     tags: existing?.tags || [],
+    isNote: Boolean(existing?.isNote),
     pinned: Boolean(existing?.pinned),
     masked: Boolean(existing?.masked),
     source: existing?.source || source,
@@ -1140,6 +1186,7 @@ if (!app.requestSingleInstanceLock()) {
   imageDir = path.join(app.getPath('userData'), 'images');
   await readSettings();
   await readStore();
+  await removeExpiredEntries();
   // Treat the clipboard contents present at launch as the initial baseline.
   // Otherwise, a deleted entry that is still on the system clipboard is
   // interpreted as a new copy and added back immediately after restarting.
@@ -1186,6 +1233,10 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
   }, CLIPBOARD_POLL_MS);
+
+  setInterval(() => {
+    removeExpiredEntries().catch((error) => console.error('Failed to clean up expired entries:', error));
+  }, RETENTION_CHECK_MS);
 
   app.dock?.hide();
   });
@@ -1251,7 +1302,8 @@ ipcMain.handle('settings:update', async (_event, nextSettings) => {
     shortcut: normalizeShortcut(nextSettings.shortcut),
     windowSize: WINDOW_SIZES[nextSettings.windowSize] ? nextSettings.windowSize : DEFAULT_SETTINGS.windowSize,
     lineSeparator: normalizeLineSeparator(nextSettings.lineSeparator),
-    darkMode: Boolean(nextSettings.darkMode)
+    darkMode: Boolean(nextSettings.darkMode),
+    retentionMonths: normalizeRetentionMonths(nextSettings.retentionMonths)
   };
   delete settings.fetchPullRequestTitles;
   await writeSettings();
@@ -1262,6 +1314,7 @@ ipcMain.handle('settings:update', async (_event, nextSettings) => {
     registerShortcuts({ preserveFailure: true });
   }
   applyWindowSize();
+  await removeExpiredEntries();
   return settingsForRenderer();
 });
 
@@ -1271,7 +1324,10 @@ ipcMain.handle('entries:update', async (_event, nextEntry) => {
 
   const current = entries[index];
   const previousPinned = Boolean(current.pinned);
-  const text = current.contentType === 'Text' ? normalizeText(nextEntry.text) : current.text || '';
+  const text =
+    current.contentType === 'Text' && typeof nextEntry.text === 'string'
+      ? normalizeText(nextEntry.text)
+      : current.text || '';
   entries[index] = {
     ...current,
     text,
@@ -1279,6 +1335,7 @@ ipcMain.handle('entries:update', async (_event, nextEntry) => {
     note: typeof nextEntry.note === 'string' ? nextEntry.note.trim() : current.note || '',
     noteSource: typeof nextEntry.note === 'string' ? 'manual' : current.noteSource || '',
     tags: Array.isArray(nextEntry.tags) ? nextEntry.tags : entries[index].tags,
+    isNote: typeof nextEntry.isNote === 'boolean' ? nextEntry.isNote : Boolean(current.isNote),
     pinned: typeof nextEntry.pinned === 'boolean' ? nextEntry.pinned : Boolean(current.pinned),
     masked: typeof nextEntry.masked === 'boolean' ? nextEntry.masked : Boolean(current.masked),
     updatedAt: nowIso()
@@ -1303,31 +1360,6 @@ ipcMain.handle('entries:delete', async (_event, id) => {
   }
   emitEntriesChanged();
   return true;
-});
-
-ipcMain.handle('entries:clear-untagged', async () => {
-  const removed = entries.filter((entry) => !Array.isArray(entry.tags) || entry.tags.length === 0);
-  if (!removed.length) {
-    return {
-      removed: 0,
-      storage: await getStorageUsage()
-    };
-  }
-
-  entries = entries.filter((entry) => Array.isArray(entry.tags) && entry.tags.length > 0);
-  await writeStore();
-
-  for (const entry of removed) {
-    if (entry.contentType === 'Image' && entry.imagePath) {
-      fs.unlink(entry.imagePath).catch(() => {});
-    }
-  }
-
-  emitEntriesChanged();
-  return {
-    removed: removed.length,
-    storage: await getStorageUsage()
-  };
 });
 
 ipcMain.handle('storage:usage', () => getStorageUsage());

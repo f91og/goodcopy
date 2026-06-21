@@ -97,6 +97,7 @@
 
     <div id="entryContextMenu" class="entry-context-menu" role="menu" hidden>
       <button id="contextPinButton" type="button" role="menuitem">Pin</button>
+      <button id="contextNoteButton" type="button" role="menuitem">Note</button>
       <button id="contextTagButton" type="button" role="menuitem">显示相同 tag</button>
       <button id="contextDeleteButton" class="danger-action" type="button" role="menuitem">删除</button>
     </div>
@@ -158,10 +159,17 @@
           <div id="accessibilityStatus" class="settings-note">用于自动粘贴到当前应用。</div>
 
           <label class="settings-field">
-            <span>清理历史</span>
-            <button id="clearUntaggedButton" class="shortcut-record danger-action" type="button">清除 Untagged</button>
+            <span>普通记录保存期</span>
+            <select id="retentionMonthsSelect" class="compact-select">
+              <option value="1">1 个月</option>
+              <option value="2">2 个月</option>
+              <option value="3">3 个月</option>
+              <option value="4">4 个月</option>
+              <option value="5">5 个月</option>
+              <option value="6">6 个月</option>
+            </select>
           </label>
-          <div id="clearUntaggedStatus" class="settings-note">只删除没有 tag 的历史记录，已打 tag 的记录会保留。</div>
+          <div class="settings-note">Note 永久保存，其他记录会在超过保存期后自动删除。</div>
         </div>
 
         <div id="aiSettingsBody" class="settings-body" hidden>
