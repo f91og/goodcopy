@@ -86,7 +86,6 @@ let suppressTagSuggestions = false;
 let previewWrapEnabled = false;
 const PREVIEW_SAVE_DELAY_MS = 500;
 const PANE_WIDTH_STORAGE_KEY = 'goodcopy.entryPaneWidth';
-const PREVIEW_WRAP_STORAGE_KEY = 'goodcopy.previewWrap';
 const DEFAULT_ENTRY_PANE_RATIO = 0.38;
 const MIN_ENTRY_PANE_WIDTH = 220;
 const MIN_DETAIL_PANE_WIDTH = 320;
@@ -113,11 +112,10 @@ function afterNextPaint(callback) {
   });
 }
 
-function setPreviewWrap(enabled, persist = false) {
+function setPreviewWrap(enabled) {
   previewWrapEnabled = Boolean(enabled);
   previewEditor.wrap = previewWrapEnabled ? 'soft' : 'off';
   previewEditor.classList.toggle('wrap-enabled', previewWrapEnabled);
-  if (persist) localStorage.setItem(PREVIEW_WRAP_STORAGE_KEY, String(previewWrapEnabled));
 }
 
 function updateEntryScrollIndicator() {
@@ -587,6 +585,7 @@ function setDraftFromEntry(entry) {
   const isMasked = Boolean(entry?.masked) && !isImage;
   const originalText = applyTextTransforms(entry?.text || '');
   const draftText = isImage ? '' : isMasked ? maskContent(originalText) : originalText;
+  setPreviewWrap(Boolean(entry?.wrapEnabled));
   state.draftTags = Array.isArray(entry?.tags) ? [...entry.tags] : [];
   state.draftNote = entry?.note || '';
   previewEditor.value = draftText;
@@ -1070,9 +1069,17 @@ transformTrimLeadingSpacesButton.addEventListener('click', () => {
   applyPreviewTransform((text) => text.replace(/^[ \t]+/, ''));
 });
 
-transformWrapButton.addEventListener('click', () => {
-  setPreviewWrap(!previewWrapEnabled, true);
+transformWrapButton.addEventListener('click', async () => {
+  const entry = selectedEntry();
+  if (!entry || entry.contentType === 'Image') return;
+  const previousWrap = Boolean(entry.wrapEnabled);
+  const nextWrap = !previousWrap;
+  setPreviewWrap(nextWrap);
   hideTransformMenu();
+  const updated = await window.goodcopy.updateEntry({ id: entry.id, wrapEnabled: nextWrap });
+  if (state.selectedId === entry.id) {
+    setPreviewWrap(updated ? Boolean(updated.wrapEnabled) : previousWrap);
+  }
 });
 
 transformMaskButton.addEventListener('click', async () => {
@@ -1631,7 +1638,6 @@ window.goodcopy.onPanelOpened(async () => {
 
 async function boot() {
   restoreEntryPaneWidth();
-  setPreviewWrap(localStorage.getItem(PREVIEW_WRAP_STORAGE_KEY) === 'true');
   setTypeFilter('all');
   applySettingsToForm(await window.goodcopy.getSettings());
   await loadEntries({ reset: true });
