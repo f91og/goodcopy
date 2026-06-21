@@ -17,6 +17,8 @@ const entryLoadStatus = document.getElementById('entryLoadStatus');
 const searchInput = document.getElementById('searchInput');
 const tagSuggestions = document.getElementById('tagSuggestions');
 const typeFilter = document.getElementById('typeFilter');
+const typeFilterButton = document.getElementById('typeFilterButton');
+const typeFilterMenu = document.getElementById('typeFilterMenu');
 const entryContextMenu = document.getElementById('entryContextMenu');
 const contextPinButton = document.getElementById('contextPinButton');
 const contextNoteButton = document.getElementById('contextNoteButton');
@@ -71,6 +73,7 @@ let searchTimer;
 let previewSaveTimer;
 let previewDirty = false;
 let contextMenuEntryId = null;
+let entryContextMenuOpenedAt = 0;
 let suppressTagSuggestions = false;
 const PREVIEW_SAVE_DELAY_MS = 500;
 const PANE_WIDTH_STORAGE_KEY = 'goodcopy.entryPaneWidth';
@@ -374,9 +377,27 @@ function filteredEntries() {
   return state.entries;
 }
 
+function closeTypeFilterMenu() {
+  typeFilterMenu.hidden = true;
+  typeFilterButton.setAttribute('aria-expanded', 'false');
+}
+
+function setTypeFilter(value, { notify = false } = {}) {
+  const option = typeFilterMenu.querySelector(`[data-value="${value}"]`);
+  if (!option) return;
+  typeFilter.value = value;
+  typeFilterButton.textContent = option.textContent;
+  typeFilterMenu.querySelectorAll('button').forEach((button) => {
+    button.classList.toggle('active', button === option);
+  });
+  if (notify) typeFilter.dispatchEvent(new Event('change'));
+}
+
 function renderTagSuggestions() {
   tagSuggestions.innerHTML = '';
-  if (suppressTagSuggestions || typeFilter.value !== 'tagged') {
+  const isExplicitTagQuery = searchInput.value.trim().startsWith('#');
+  const shouldSuggestForNoted = typeFilter.value === 'note' && document.activeElement === searchInput;
+  if (suppressTagSuggestions || (!isExplicitTagQuery && !shouldSuggestForNoted)) {
     tagSuggestions.hidden = true;
     return;
   }
@@ -479,7 +500,11 @@ function setDraftFromEntry(entry) {
   previewImage.src = isImage && entry.imageUrl ? entry.imageUrl : '';
   detailPane.classList.toggle('image-selected', isImage);
   pinButton.classList.toggle('active', Boolean(entry?.pinned));
-  pinButton.textContent = entry?.pinned ? '取消 Pin' : 'Pin';
+  pinButton.querySelector('.pin-icon-pin').hidden = Boolean(entry?.pinned);
+  pinButton.querySelector('.pin-icon-unpin').hidden = !entry?.pinned;
+  const pinActionLabel = entry?.pinned ? '取消 Pin' : 'Pin';
+  pinButton.setAttribute('aria-label', pinActionLabel);
+  pinButton.title = pinActionLabel;
   renderTags();
 }
 
@@ -577,6 +602,7 @@ function showTransformMenu() {
 
 function positionEntryContextMenu(x, y) {
   entryContextMenu.hidden = false;
+  entryContextMenuOpenedAt = performance.now();
 
   const { width, height } = entryContextMenu.getBoundingClientRect();
   const left = Math.min(x, window.innerWidth - width - 8);
@@ -585,7 +611,7 @@ function positionEntryContextMenu(x, y) {
   entryContextMenu.style.top = `${Math.max(8, top)}px`;
 }
 
-async function showEntryContextMenu(event, entry) {
+function showEntryContextMenu(event, entry) {
   event.preventDefault();
   event.stopPropagation();
 
@@ -599,12 +625,16 @@ async function showEntryContextMenu(event, entry) {
   positionEntryContextMenu(event.clientX, event.clientY);
 
   if (entry.id === state.selectedId) return;
-  if (previewDirty) {
-    flushCurrentEntry();
-    return;
-  }
-  setDraftFromEntry(entry);
-  renderEntries();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(async () => {
+      if (contextMenuEntryId !== entry.id) return;
+      if (previewDirty) await flushCurrentEntry();
+      if (contextMenuEntryId !== entry.id) return;
+      setDraftFromEntry(entry);
+      entryList.querySelector('.entry-item.selected')?.classList.remove('selected');
+      entryList.querySelector(`[data-id="${entry.id}"]`)?.classList.add('selected');
+    });
+  });
 }
 
 function entryNeedsDeleteConfirmation(entry) {
@@ -681,7 +711,7 @@ function showEntriesWithSameTag(entry = selectedEntry()) {
 
   hideEntryContextMenu();
   searchInput.value = `#${tag}`;
-  typeFilter.value = 'tagged';
+  setTypeFilter('all');
   suppressTagSuggestions = true;
   tagSuggestions.hidden = true;
   loadEntries({ reset: true, preserveSelection: true });
@@ -723,6 +753,12 @@ function renderEntries() {
     const textWrap = document.createElement('div');
     const title = document.createElement('div');
     title.className = 'entry-title';
+    if (entry.pinned) {
+      const pinIcon = pinButton.querySelector('.pin-icon-pin').cloneNode(true);
+      pinIcon.hidden = false;
+      pinIcon.classList.add('entry-pin-icon');
+      title.append(pinIcon);
+    }
     if (entry.isNote) {
       const noteIcon = document.createElement('span');
       noteIcon.className = 'entry-note-icon';
@@ -731,7 +767,7 @@ function renderEntries() {
       title.append(noteIcon);
     }
     const displayTitle = entry.note || (entry.masked ? maskContent(entry.title) : entry.title);
-    title.append(document.createTextNode(`${entry.pinned ? 'Pin · ' : ''}${displayTitle}`));
+    title.append(document.createTextNode(displayTitle));
     textWrap.append(title);
 
     if (tags.length) {
@@ -742,12 +778,18 @@ function renderEntries() {
     }
 
     item.append(textWrap);
-    item.addEventListener('click', async () => {
+    item.addEventListener('click', async (event) => {
+      if (event.ctrlKey) return;
       hideEntryContextMenu();
       await selectEntry(entry);
     });
     item.addEventListener('contextmenu', (event) => {
       showEntryContextMenu(event, entry);
+    });
+    item.addEventListener('pointerdown', (event) => {
+      if (event.button === 2 || (event.button === 0 && event.ctrlKey)) {
+        showEntryContextMenu(event, entry);
+      }
     });
     item.addEventListener('keydown', async (event) => {
       if (event.key === 'Enter') {
@@ -1185,6 +1227,7 @@ transformMenu.addEventListener('click', (event) => {
 document.addEventListener('click', () => {
   hideEntryContextMenu();
   hideTransformMenu();
+  closeTypeFilterMenu();
 });
 
 previewEditor.addEventListener('keydown', (event) => {
@@ -1290,6 +1333,18 @@ typeFilter.addEventListener('change', async () => {
   await refreshTagSuggestions();
   loadEntries({ reset: true });
 });
+typeFilterButton.addEventListener('click', (event) => {
+  event.stopPropagation();
+  typeFilterMenu.hidden = !typeFilterMenu.hidden;
+  typeFilterButton.setAttribute('aria-expanded', String(!typeFilterMenu.hidden));
+});
+typeFilterMenu.addEventListener('click', (event) => {
+  event.stopPropagation();
+  const option = event.target.closest('button[data-value]');
+  if (!option) return;
+  setTypeFilter(option.dataset.value, { notify: true });
+  closeTypeFilterMenu();
+});
 
 document.addEventListener(
   'compositionstart',
@@ -1308,7 +1363,9 @@ document.addEventListener(
 );
 
 entryPane.addEventListener('scroll', () => {
-  hideEntryContextMenu();
+  if (performance.now() - entryContextMenuOpenedAt > 250) {
+    hideEntryContextMenu();
+  }
   hideTransformMenu();
   const distanceFromBottom = entryPane.scrollHeight - entryPane.scrollTop - entryPane.clientHeight;
   if (distanceFromBottom < 160 && state.hasMoreEntries && !state.isLoadingEntries) {
@@ -1403,7 +1460,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 window.goodcopy.onEntriesChanged((change) => {
-  if (typeFilter.value === 'tagged') {
+  if (searchInput.value.trim().startsWith('#') || typeFilter.value === 'note') {
     refreshTagSuggestions();
   }
   if (change?.type === 'updated' && change.entry) {
@@ -1435,7 +1492,7 @@ window.goodcopy.onEntriesChanged((change) => {
 });
 
 window.goodcopy.onPanelOpened(async () => {
-  typeFilter.value = 'all';
+  setTypeFilter('all');
   searchInput.value = '';
   suppressTagSuggestions = false;
   tagSuggestions.hidden = true;
@@ -1447,6 +1504,7 @@ window.goodcopy.onPanelOpened(async () => {
 
 async function boot() {
   restoreEntryPaneWidth();
+  setTypeFilter('all');
   applySettingsToForm(await window.goodcopy.getSettings());
   await loadEntries({ reset: true });
   await refreshStorageUsage();

@@ -17,13 +17,17 @@
           <input id="searchInput" class="search-input" type="search" placeholder="Type to filter entries..." />
           <div id="tagSuggestions" class="tag-suggestions" hidden></div>
         </div>
-        <select id="typeFilter" class="type-filter" aria-label="类型过滤">
-          <option value="all">All</option>
-          <option value="text">Text</option>
-          <option value="image">Image</option>
-          <option value="tagged">Tagged</option>
-          <option value="untagged">Untagged</option>
-        </select>
+        <div class="type-filter-wrap">
+          <input id="typeFilter" type="hidden" value="all" />
+          <button id="typeFilterButton" class="type-filter" type="button" aria-haspopup="menu" aria-expanded="false">All</button>
+          <div id="typeFilterMenu" class="type-filter-menu" role="menu" hidden>
+            <button type="button" role="menuitem" data-value="all">All</button>
+            <button type="button" role="menuitem" data-value="text">Text</button>
+            <button type="button" role="menuitem" data-value="image">Image</button>
+            <button type="button" role="menuitem" data-value="note">Noted</button>
+            <button type="button" role="menuitem" data-value="unnote">Unnoted</button>
+          </div>
+        </div>
       </header>
 
       <div id="shortcutWarning" class="shortcut-warning" role="alert" hidden></div>
@@ -63,7 +67,20 @@
           </div>
 
           <div class="tool-row">
-            <button id="pinButton" class="tool-button pin-button" type="button">Pin</button>
+            <button id="pinButton" class="tool-button pin-button" type="button" aria-label="Pin" title="Pin">
+              <svg class="pin-icon pin-icon-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 17v5" />
+                <path d="M5 17h14" />
+                <path d="m6 17 1-5V5a2 2 0 0 1-2-2h14a2 2 0 0 1-2 2v7l1 5" />
+              </svg>
+              <svg class="pin-icon pin-icon-unpin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                <path d="M12 17v5" />
+                <path d="M5 17h14" />
+                <path d="m7.2 12-1.2 5h8" />
+                <path d="M7 5a2 2 0 0 1-2-2h14a2 2 0 0 1-2 2v7l.35 1.75" />
+                <path d="m3 3 18 18" />
+              </svg>
+            </button>
             <button id="transformButton" class="tool-button text-only-control" type="button">变换</button>
             <div class="metadata-field">
               <div id="metadataTagSuggestions" class="tag-suggestions metadata-tag-suggestions" hidden></div>
@@ -161,12 +178,12 @@
           <label class="settings-field">
             <span>普通记录保存期</span>
             <select id="retentionMonthsSelect" class="compact-select">
-              <option value="1">1 个月</option>
-              <option value="2">2 个月</option>
-              <option value="3">3 个月</option>
-              <option value="4">4 个月</option>
-              <option value="5">5 个月</option>
-              <option value="6">6 个月</option>
+              <option value="1">1月</option>
+              <option value="2">2月</option>
+              <option value="3">3月</option>
+              <option value="4">4月</option>
+              <option value="5">5月</option>
+              <option value="6">6月</option>
             </select>
           </label>
           <div class="settings-note">Note 永久保存，其他记录会在超过保存期后自动删除。</div>

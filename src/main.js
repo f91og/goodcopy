@@ -535,7 +535,7 @@ function queryRendererEntries(options = {}) {
   const limit = Math.min(100, Math.max(1, Number.parseInt(options.limit, 10) || 50));
   const query = String(options.query || '').trim().toLowerCase();
   const tagQuery = query.startsWith('#') ? query.slice(1) : '';
-  const filter = ['all', 'text', 'image', 'tagged', 'untagged'].includes(options.filter) ? options.filter : 'all';
+  const filter = ['all', 'text', 'image', 'note', 'unnote'].includes(options.filter) ? options.filter : 'all';
   const matchedEntries = entries
     .filter((entry) => {
       const tags = Array.isArray(entry.tags) ? entry.tags : [];
@@ -549,8 +549,8 @@ function queryRendererEntries(options = {}) {
         filter === 'all' ||
         (filter === 'text' && entry.contentType === 'Text') ||
         (filter === 'image' && entry.contentType === 'Image') ||
-        (filter === 'tagged' && tags.length > 0) ||
-        (filter === 'untagged' && tags.length === 0);
+        (filter === 'note' && Boolean(entry.isNote)) ||
+        (filter === 'unnote' && !entry.isNote);
       return matchesQuery && matchesType;
     })
     .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));

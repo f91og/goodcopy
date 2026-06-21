@@ -199,6 +199,7 @@ textarea {
 .icon-button,
 .search-field,
 .search-input,
+.type-filter-wrap,
 .type-filter,
 .tool-button,
 .primary-button,
@@ -278,21 +279,71 @@ textarea {
   background: rgba(38, 104, 145, 0.24);
 }
 
+.type-filter-wrap {
+  position: relative;
+  width: 120px;
+}
+
 .type-filter {
-  field-sizing: content;
-  width: auto;
-  min-width: 112px;
+  position: relative;
+  width: 100%;
   height: var(--button-height);
-  padding: 0 30px 0 12px;
+  padding: 0 36px 0 14px;
   border: 1px solid rgba(0, 0, 0, 0.2);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.12);
   color: #111;
   font-size: var(--type-size);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.type-filter option {
+.type-filter::after {
+  content: '';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-70%) rotate(45deg);
+}
+
+.type-filter-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 100%;
+  padding: 5px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 9px;
+  background: rgba(242, 242, 242, 0.98);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  box-sizing: border-box;
+}
+
+.type-filter-menu button {
+  display: block;
+  width: 100%;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: #111;
+  font: inherit;
+  font-size: var(--type-size);
+  text-align: left;
+  cursor: pointer;
+}
+
+.type-filter-menu button:hover,
+.type-filter-menu button:focus-visible,
+.type-filter-menu button.active {
+  background: rgba(0, 0, 0, 0.09);
+  outline: none;
 }
 
 .content {
@@ -306,6 +357,20 @@ textarea {
   min-width: 0;
   overflow: auto;
   padding: var(--pane-padding-top) 10px 14px;
+  scrollbar-gutter: stable;
+}
+
+.entry-pane::-webkit-scrollbar {
+  width: 6px;
+}
+
+.entry-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.entry-pane::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.5);
 }
 
 .pane-resize-handle {
@@ -623,9 +688,30 @@ textarea {
 }
 
 .pin-button.active {
-  border-color: #111;
-  background: #111;
-  color: #fff;
+  border-color: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.06);
+  color: #111;
+}
+
+.pin-button {
+  display: inline-grid;
+  place-items: center;
+  width: var(--button-height);
+  padding: 0;
+}
+
+.pin-icon {
+  display: block;
+  width: 17px;
+  height: 17px;
+}
+
+.entry-pin-icon {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 7px;
+  vertical-align: -1px;
 }
 
 .tag-list {
@@ -924,9 +1010,23 @@ textarea {
 :root.dark-mode .preview-editor,
 :root.dark-mode .tag-input,
 :root.dark-mode .note-input,
-:root.dark-mode .type-filter,
-:root.dark-mode .type-filter option {
+:root.dark-mode .type-filter {
   color: #ededed;
+}
+
+:root.dark-mode .type-filter-menu {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(35, 35, 35, 0.98);
+}
+
+:root.dark-mode .type-filter-menu button {
+  color: #ededed;
+}
+
+:root.dark-mode .type-filter-menu button:hover,
+:root.dark-mode .type-filter-menu button:focus-visible,
+:root.dark-mode .type-filter-menu button.active {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 :root.dark-mode .search-input::placeholder,
@@ -1047,11 +1147,16 @@ textarea {
 
 :root.dark-mode .primary-button,
 :root.dark-mode .footer-button.strong,
-:root.dark-mode .pin-button.active,
 :root.dark-mode .shortcut-record.recording {
   border-color: #ededed;
   background: #ededed;
   color: #151515;
+}
+
+:root.dark-mode .pin-button.active {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ededed;
 }
 
 :root.dark-mode .footer-button.danger,
