@@ -1140,6 +1140,19 @@ if (!app.requestSingleInstanceLock()) {
   imageDir = path.join(app.getPath('userData'), 'images');
   await readSettings();
   await readStore();
+  // Treat the clipboard contents present at launch as the initial baseline.
+  // Otherwise, a deleted entry that is still on the system clipboard is
+  // interpreted as a new copy and added back immediately after restarting.
+  lastClipboardText = normalizeText(clipboard.readText());
+  const initialClipboardFormats = clipboard.availableFormats();
+  if (initialClipboardFormats.some((format) => format.startsWith('image/'))) {
+    const initialImage = clipboard.readImage();
+    lastClipboardImageHash = initialImage.isEmpty()
+      ? ''
+      : crypto.createHash('sha256').update(initialImage.toPNG()).digest('hex');
+  } else {
+    lastClipboardImageHash = '';
+  }
   createWindow();
   registerShortcuts();
 

@@ -621,9 +621,9 @@ async function deleteEntry(entry = selectedEntry(), { confirmProtected = true } 
   const entriesBeforeDelete = filteredEntries();
   const deletedIndex = entriesBeforeDelete.findIndex((item) => item.id === entry.id);
   const nextSelectedId =
-    deletedIndex > 0
-      ? entriesBeforeDelete[deletedIndex - 1]?.id
-      : entriesBeforeDelete[deletedIndex + 1]?.id || null;
+    entriesBeforeDelete[deletedIndex + 1]?.id ||
+    entriesBeforeDelete[deletedIndex - 1]?.id ||
+    null;
   const selectedIdAfterDelete = state.selectedId === entry.id ? nextSelectedId : state.selectedId;
   hideEntryContextMenu();
   await window.goodcopy.deleteEntry(entry.id);
