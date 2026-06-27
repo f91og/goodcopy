@@ -20,6 +20,7 @@ const desktopWindows = new Map();
 let entries = [];
 let lastClipboardText = '';
 let lastClipboardImageHash = '';
+let pendingInternalCopy = null;
 let storePath = '';
 let settingsPath = '';
 let imageDir = '';
@@ -40,6 +41,7 @@ const CLIPBOARD_POLL_MS = 800;
 const IMAGE_CLIPBOARD_POLL_MS = 1600;
 let lastImageClipboardCheck = 0;
 const DEFAULT_SETTINGS = {
+  ignoreInternalCopies: false,
   removeBlankLines: false,
   trimLeadingSpaces: false,
   fetchGithubPullRequestTitles: false,
@@ -50,6 +52,7 @@ const DEFAULT_SETTINGS = {
   windowSize: 'medium',
   lineSeparator: ' ',
   darkMode: false,
+  hideAppIcon: true,
   retentionMonths: 3,
   githubStatus: null
 };
@@ -764,6 +767,28 @@ function applyWindowSize() {
   mainWindow.center();
 }
 
+function applyDockVisibility() {
+  if (process.platform !== 'darwin') return;
+  if (settings.hideAppIcon === false) {
+    app.dock?.show();
+  } else {
+    app.dock?.hide();
+  }
+}
+
+function showMainWindow({ refresh = true } = {}) {
+  if (!mainWindow) return;
+  applyWindowSize();
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+  if (refresh) {
+    mainWindow.webContents.send('panel-opened');
+  }
+}
+
 async function atomicWriteFile(filePath, contents) {
   const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -1025,7 +1050,7 @@ function createWindow() {
     query: { windowSize: settings.windowSize }
   });
   mainWindow.on('blur', () => {
-    if (!mainWindow.webContents.isDevToolsOpened()) {
+    if (settings.hideAppIcon !== false && !mainWindow.webContents.isDevToolsOpened()) {
       mainWindow.hide();
     }
   });
@@ -1137,10 +1162,7 @@ async function togglePanel() {
 
   const activeWindowPromise = captureActiveWindow();
   previousActiveWindow = null;
-  applyWindowSize();
-  mainWindow.show();
-  mainWindow.focus();
-  mainWindow.webContents.send('panel-opened');
+  showMainWindow();
   activeWindowPromise.then((activeWindow) => {
     previousActiveWindow = activeWindow;
   });
@@ -1219,6 +1241,12 @@ if (!app.requestSingleInstanceLock()) {
     togglePanel();
   });
 
+  app.on('activate', () => {
+    if (settings.hideAppIcon === false) {
+      showMainWindow({ refresh: false });
+    }
+  });
+
   app.whenReady().then(async () => {
   storePath = path.join(app.getPath('userData'), 'entries.json');
   settingsPath = path.join(app.getPath('userData'), 'settings.json');
@@ -1250,11 +1278,19 @@ if (!app.requestSingleInstanceLock()) {
     const currentText = normalizeText(clipboard.readText());
     if (currentText && currentText !== lastClipboardText) {
       lastClipboardText = currentText;
-      try {
-        addClipboardText(currentText);
-      } catch (error) {
-        lastClipboardText = '';
-        console.error('Failed to capture clipboard:', error);
+      const ignoreInternalText =
+        settings.ignoreInternalCopies &&
+        pendingInternalCopy &&
+        now <= pendingInternalCopy.expiresAt &&
+        clipboardTextKey(currentText) === pendingInternalCopy.text;
+      pendingInternalCopy = null;
+      if (!ignoreInternalText) {
+        try {
+          addClipboardText(currentText);
+        } catch (error) {
+          lastClipboardText = '';
+          console.error('Failed to capture clipboard:', error);
+        }
       }
     }
 
@@ -1277,7 +1313,7 @@ if (!app.requestSingleInstanceLock()) {
     removeExpiredEntries().catch((error) => console.error('Failed to clean up expired entries:', error));
   }, RETENTION_CHECK_MS);
 
-  app.dock?.hide();
+  applyDockVisibility();
   });
 }
 
@@ -1308,6 +1344,14 @@ ipcMain.handle('entries:tags', () => listEntryTags());
 
 ipcMain.handle('settings:get', () => settingsForRenderer());
 
+ipcMain.on('clipboard:internal-copy', (_event, text) => {
+  if (!settings.ignoreInternalCopies || typeof text !== 'string') return;
+  pendingInternalCopy = {
+    text: clipboardTextKey(text),
+    expiresAt: Date.now() + CLIPBOARD_POLL_MS * 2
+  };
+});
+
 ipcMain.handle('github:status', () => refreshGithubStatus());
 
 ipcMain.handle('github:login', () => openGithubLogin());
@@ -1333,9 +1377,11 @@ ipcMain.handle('settings:update', async (_event, nextSettings) => {
   const previousSettings = { ...settings };
   settings = {
     ...settings,
+    ignoreInternalCopies: Boolean(nextSettings.ignoreInternalCopies),
     removeBlankLines: Boolean(nextSettings.removeBlankLines),
     trimLeadingSpaces: Boolean(nextSettings.trimLeadingSpaces),
     fetchGithubPullRequestTitles: Boolean(nextSettings.fetchGithubPullRequestTitles),
+    hideAppIcon: Boolean(nextSettings.hideAppIcon),
     aiProvider: AI_PROVIDERS.has(nextSettings.aiProvider) ? nextSettings.aiProvider : DEFAULT_SETTINGS.aiProvider,
     aiInstruction: String(nextSettings.aiInstruction || '').trim().slice(0, 1000),
     shortcut: normalizeShortcut(nextSettings.shortcut),
@@ -1353,6 +1399,10 @@ ipcMain.handle('settings:update', async (_event, nextSettings) => {
     registerShortcuts({ preserveFailure: true });
   }
   applyWindowSize();
+  applyDockVisibility();
+  if (settings.hideAppIcon === false) {
+    showMainWindow({ refresh: false });
+  }
   await removeExpiredEntries();
   return settingsForRenderer();
 });

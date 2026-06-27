@@ -44,7 +44,9 @@ const noteInput = document.getElementById('noteInput');
 const metadataTagSuggestions = document.getElementById('metadataTagSuggestions');
 const pinButton = document.getElementById('pinButton');
 const darkModeToggle = document.getElementById('darkModeToggle');
+const ignoreInternalCopiesToggle = document.getElementById('ignoreInternalCopiesToggle');
 const fetchGithubPullRequestTitlesToggle = document.getElementById('fetchGithubPullRequestTitlesToggle');
+const hideAppIconToggle = document.getElementById('hideAppIconToggle');
 const githubLoginButton = document.getElementById('githubLoginButton');
 const githubStatus = document.getElementById('githubStatus');
 const aiProviderSelect = document.getElementById('aiProviderSelect');
@@ -245,7 +247,9 @@ async function refreshStorageUsage() {
 
 function readSettingsForm() {
   return {
+    ignoreInternalCopies: ignoreInternalCopiesToggle.checked,
     fetchGithubPullRequestTitles: fetchGithubPullRequestTitlesToggle.checked,
+    hideAppIcon: hideAppIconToggle.checked,
     aiProvider: aiProviderSelect.value,
     aiInstruction: aiInstructionInput.value,
     shortcut: shortcutRecordButton.dataset.shortcut || 'CommandOrControl+P',
@@ -259,7 +263,9 @@ function readSettingsForm() {
 function applySettingsToForm(settings) {
   state.settings = { ...settings };
   darkModeToggle.checked = Boolean(settings.darkMode);
+  ignoreInternalCopiesToggle.checked = Boolean(settings.ignoreInternalCopies);
   fetchGithubPullRequestTitlesToggle.checked = Boolean(settings.fetchGithubPullRequestTitles);
+  hideAppIconToggle.checked = settings.hideAppIcon !== false;
   aiProviderSelect.value = settings.aiProvider || 'none';
   aiInstructionInput.value = settings.aiInstruction || '';
   aiInstructionInput.disabled = true;
@@ -769,6 +775,7 @@ async function deleteEntry(entry = selectedEntry(), { confirmProtected = true } 
   await window.goodcopy.deleteEntry(entry.id);
   state.selectedId = selectedIdAfterDelete;
   await loadEntries({ reset: true, selectedId: selectedIdAfterDelete });
+  setDraftFromEntry(selectedEntry());
 }
 
 async function toggleEntryPinned(entry = selectedEntry()) {
@@ -1591,6 +1598,18 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     pasteSelectedEntry();
   }
+});
+
+document.addEventListener('copy', () => {
+  if (!state.settings?.ignoreInternalCopies) return;
+
+  const activeElement = document.activeElement;
+  const hasTextSelection =
+    activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement;
+  const selectedText = hasTextSelection
+    ? activeElement.value.slice(activeElement.selectionStart ?? 0, activeElement.selectionEnd ?? 0)
+    : window.getSelection()?.toString() || '';
+  window.goodcopy.notifyInternalCopy(selectedText);
 });
 
 window.goodcopy.onEntriesChanged((change) => {

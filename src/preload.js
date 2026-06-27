@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('goodcopy', {
   getStorageUsage: () => ipcRenderer.invoke('storage:usage'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (settings) => ipcRenderer.invoke('settings:update', settings),
+  notifyInternalCopy: (text) => ipcRenderer.send('clipboard:internal-copy', text),
   getGithubStatus: () => ipcRenderer.invoke('github:status'),
   loginGithub: () => ipcRenderer.invoke('github:login'),
   getAiStatus: (provider) => ipcRenderer.invoke('ai:status', provider),

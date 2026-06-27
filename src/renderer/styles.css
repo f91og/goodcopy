@@ -3,14 +3,14 @@
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: #d6d6d4;
   color: #111111;
-  --topbar-height: 56px;
-  --footer-height: 52px;
-  --search-size: 23px;
+  --topbar-height: 44px;
+  --footer-height: 46px;
+  --search-size: 20px;
   --type-size: 18px;
   --entry-title-size: 16px;
   --entry-min-height: 54px;
   --preview-size: 16px;
-  --button-height: 34px;
+  --button-height: 30px;
   --footer-brand-size: 16px;
   --footer-button-size: 16px;
   --toolbar-padding-x: 20px;
@@ -38,14 +38,14 @@ body {
 }
 
 :root.size-small {
-  --topbar-height: 46px;
-  --footer-height: 42px;
-  --search-size: 17px;
+  --topbar-height: 36px;
+  --footer-height: 38px;
+  --search-size: 15px;
   --type-size: 14px;
   --entry-title-size: 13px;
   --entry-min-height: 40px;
   --preview-size: 13px;
-  --button-height: 28px;
+  --button-height: 24px;
   --footer-brand-size: 12px;
   --footer-button-size: 12px;
   --toolbar-padding-x: 14px;
@@ -62,14 +62,14 @@ body {
 }
 
 :root.size-medium {
-  --topbar-height: 50px;
-  --footer-height: 46px;
-  --search-size: 19px;
+  --topbar-height: 40px;
+  --footer-height: 40px;
+  --search-size: 16px;
   --type-size: 15px;
   --entry-title-size: 14px;
   --entry-min-height: 44px;
   --preview-size: 14px;
-  --button-height: 30px;
+  --button-height: 26px;
   --footer-brand-size: 13px;
   --footer-button-size: 13px;
   --toolbar-padding-x: 16px;
@@ -86,7 +86,7 @@ body {
 }
 
 :root.size-medium .topbar {
-  padding-block: 6px;
+  padding-block: 4px;
 }
 
 :root.size-medium .entry-item {
@@ -100,22 +100,22 @@ body {
 
 :root.size-medium .tool-row {
   gap: 8px;
-  padding-block: 8px;
-}
-
-:root.size-medium .footerbar {
   padding-block: 6px;
 }
 
+:root.size-medium .footerbar {
+  padding-block: 4px;
+}
+
 :root.size-large {
-  --topbar-height: 50px;
-  --footer-height: 46px;
-  --search-size: 19px;
+  --topbar-height: 40px;
+  --footer-height: 40px;
+  --search-size: 16px;
   --type-size: 15px;
   --entry-title-size: 14px;
   --entry-min-height: 42px;
   --preview-size: 14px;
-  --button-height: 30px;
+  --button-height: 26px;
   --footer-brand-size: 13px;
   --footer-button-size: 13px;
   --toolbar-padding-x: 16px;
@@ -132,7 +132,7 @@ body {
 }
 
 :root.size-large .topbar {
-  padding-block: 6px;
+  padding-block: 4px;
 }
 
 :root.size-large .entry-item {
@@ -146,11 +146,11 @@ body {
 
 :root.size-large .tool-row {
   gap: 8px;
-  padding-block: 8px;
+  padding-block: 6px;
 }
 
 :root.size-large .footerbar {
-  padding-block: 6px;
+  padding-block: 4px;
 }
 
 [hidden] {
@@ -193,8 +193,8 @@ textarea {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 14px;
-  padding: 6px 20px;
+  gap: 12px;
+  padding: 4px 16px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 
@@ -632,7 +632,7 @@ textarea {
   flex-wrap: nowrap;
   gap: 10px;
   align-items: center;
-  padding: 10px var(--toolbar-padding-x);
+  padding: 6px var(--toolbar-padding-x);
 }
 
 .tags-row {
@@ -774,7 +774,7 @@ textarea {
   grid-template-columns: minmax(160px, auto) 1fr;
   align-items: center;
   gap: 12px;
-  padding: 8px 16px;
+  padding: 5px 16px;
   border-top: 1px solid rgba(0, 0, 0, 0.1);
   background: rgba(245, 245, 244, 0.82);
 }
